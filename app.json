@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "Master Sport",
+    "slug": "master-sport-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "backgroundColor": "#0f2319",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.progana.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0f2319"
+      },
+      "package": "com.progana.app"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}
