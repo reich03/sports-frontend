@@ -319,7 +319,7 @@ const ProfileScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
           <Text style={styles.username}>{user?.username}</Text>
-          <Text style={styles.memberBadge}>MASTERSPORT ELITE MEMBER</Text>
+          <Text style={styles.memberBadge}>Miembro de MasterSport</Text>
           <Text style={styles.memberSince}>Miembro desde {memberSince}</Text>
         </View>
 

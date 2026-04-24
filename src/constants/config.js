@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 
 const ENV = {
   dev: {
-    apiUrl: 'http://192.168.1.10:3000/api',
+    apiUrl: 'http://192.168.1.3:3000/api',
   },
   staging: {
     apiUrl: 'https://staging-api.progana.app/api',

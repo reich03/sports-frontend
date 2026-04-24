@@ -107,7 +107,7 @@ const SplashScreen = () => {
         <Text style={styles.brandText}>
           MASTER<Text style={styles.brandTextGreen}>SPORTS</Text>
         </Text>
-        <Text style={styles.tagline}>ELITE PREDICTION ENGINE</Text>
+        <Text style={styles.tagline}>ELIGE COMPITE GANA</Text>
       </Animated.View>
 
       {/* Progress Bar */}
@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
     marginBottom: 80,
   },
   brandText: {
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: '900',
     color: '#ffffff',
     letterSpacing: 2,
