@@ -249,7 +249,7 @@ export const teamService = {
 
   uploadTeamLogo: async (teamId, imageUri) => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await AsyncStorage.getItem('userToken');
       const formData = new FormData();
       
       const filename = imageUri.split('/').pop();

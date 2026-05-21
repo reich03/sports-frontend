@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createStackNavigator } from '@react-navigation/stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { View, Text } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
 import { COLORS } from '../constants/theme';
@@ -58,6 +59,7 @@ const AuthStack = () => {
 
 // Main Tab Navigator
 const MainTabs = () => {
+  const insets = useSafeAreaInsets();
   return (
     <Tab.Navigator
       screenOptions={{
@@ -65,8 +67,9 @@ const MainTabs = () => {
         tabBarStyle: {
           backgroundColor: COLORS.cardDark,
           borderTopColor: COLORS.border,
-          height: 60,
-          paddingBottom: 8,
+          height: 60 + insets.bottom,
+          paddingBottom: insets.bottom + 4,
+          paddingTop: 4,
         },
         tabBarActiveTintColor: COLORS.primary,
         tabBarInactiveTintColor: COLORS.textSecondary,

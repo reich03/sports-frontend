@@ -2,13 +2,13 @@ import Constants from 'expo-constants';
 
 const ENV = {
   dev: {
-    apiUrl: 'http://192.168.1.3:3000/api',
+    apiUrl: 'https://api.mastersports25.com/api',
   },
   staging: {
-    apiUrl: 'https://staging-api.progana.app/api',
+    apiUrl: 'https://api.mastersports25.com/api',
   },
   prod: {
-    apiUrl: 'https://api.progana.app/api',
+    apiUrl: 'https://api.mastersports25.com/api',
   },
 };
 
@@ -22,4 +22,4 @@ const config = getEnvVars();
 
 export default config;
 export const API_BASE_URL = config.apiUrl;
-export const BASE_URL = config.apiUrl.replace('/api', ''); 
+export const BASE_URL = config.apiUrl.replace(/\/api$/, ''); 

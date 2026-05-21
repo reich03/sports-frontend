@@ -27,6 +27,7 @@ import CONFIG, { BASE_URL } from '../../constants/config';
 const TeamManagement = ({ navigation }) => {
   const { token } = useAuth();
   const [teams, setTeams] = useState([]);
+  console.log(teams);
   const [sports, setSports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);

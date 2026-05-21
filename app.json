@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "Master Sport",
-    "slug": "master-sport-app",
-    "version": "1.0.0",
+    "slug": "mastersports",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "splash": {
@@ -20,10 +20,21 @@
       "adaptiveIcon": {
         "backgroundColor": "#0f2319"
       },
-      "package": "com.progana.app"
+      "package": "com.progana.app",
+      "versionCode": 2
     },
     "web": {
       "bundler": "metro"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "08f3107f-62e6-470c-ab2f-be595fa2dc33"
+      }
+    },
+    "owner": "reich0319",
+    "plugins": [
+      "expo-font",
+      "expo-asset"
+    ]
   }
 }
