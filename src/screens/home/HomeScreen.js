@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   StatusBar,
   Animated,
   Image,
+  ImageBackground,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,24 +27,48 @@ const HomeScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userRanking, setUserRanking] = useState(null);
-  const pulseAnim = new Animated.Value(1);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Entry animations — each section slides up + fades in with stagger
+  const sections = useRef(
+    Array.from({ length: 5 }, () => ({
+      opacity: new Animated.Value(0),
+      translateY: new Animated.Value(24),
+    }))
+  ).current;
+
+  const runEntryAnimations = () => {
+    sections.forEach((s, i) => {
+      Animated.parallel([
+        Animated.timing(s.opacity, {
+          toValue: 1,
+          duration: 400,
+          delay: i * 90,
+          useNativeDriver: true,
+        }),
+        Animated.timing(s.translateY, {
+          toValue: 0,
+          duration: 400,
+          delay: i * 90,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    });
+  };
+
+  const sectionStyle = (i) => ({
+    opacity: sections[i].opacity,
+    transform: [{ translateY: sections[i].translateY }],
+  });
 
   useEffect(() => {
     loadData();
-    
+
     // Pulse animation for live indicator
     Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.3,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
+        Animated.timing(pulseAnim, { toValue: 1.3, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1,   duration: 1000, useNativeDriver: true }),
       ])
     ).start();
   }, [selectedSport]);
@@ -72,6 +97,7 @@ const HomeScreen = ({ navigation }) => {
     } finally {
       setLoading(false);
       setRefreshing(false);
+      runEntryAnimations();
     }
   };
 
@@ -195,6 +221,7 @@ const HomeScreen = ({ navigation }) => {
         }
       >
         {/* Header Section */}
+        <Animated.View style={sectionStyle(0)}>
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <View style={styles.avatarContainer}>
@@ -224,61 +251,118 @@ const HomeScreen = ({ navigation }) => {
             </Text>
           </View>
         </View>
+        </Animated.View>
+
+        {/* ─── Banner Mundial 2026 ─── */}
+        <Animated.View style={sectionStyle(1)}>
+        <TouchableOpacity
+          style={styles.mundialBanner}
+          onPress={() => navigation.navigate('TournamentHome')}
+          activeOpacity={0.88}
+        >
+          <ImageBackground
+            source={require('../../../assets/Todo-listo-para-el-sorteo-de-la-Copa-Mundial-de-la-FIFA.webp')}
+            style={styles.mundialImageBg}
+            imageStyle={{ borderRadius: 16 }}
+            resizeMode="cover"
+          >
+            <View style={styles.mundialOverlay}>
+              <View style={styles.mundialContent}>
+                <View style={styles.mundialText}>
+                  <Text style={styles.mundialTitle}>FIFA World Cup 2026</Text>
+                  <Text style={styles.mundialSub}>¡Predice y gana! Jun 11 – Jul 19</Text>
+                </View>
+                <View style={styles.mundialBadge}>
+                  <Text style={styles.mundialBadgeText}>¡NUEVO!</Text>
+                </View>
+              </View>
+              <View style={styles.mundialFlags}>
+                <Text style={styles.mundialFlag}>🇲🇽</Text>
+                <Text style={styles.mundialFlag}>🇺🇸</Text>
+                <Text style={styles.mundialFlag}>🇨🇦</Text>
+                <Ionicons name="chevron-forward" size={18} color="#fff" style={{ marginLeft: 4 }} />
+              </View>
+            </View>
+          </ImageBackground>
+        </TouchableOpacity>
+        </Animated.View>
 
         {/* Main Dashboard Card */}
+        <Animated.View style={sectionStyle(2)}>
         <View style={styles.dashboardCardContainer}>
           <LinearGradient
-            colors={['rgba(0, 230, 119, 0.15)', 'transparent']}
+            colors={['rgba(0,230,119,0.12)', 'rgba(0,230,119,0.03)', 'transparent']}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.dashboardCard}
           >
-            <View style={styles.abstractBlur1} />
-            <View style={styles.abstractBlur2} />
-            
+            {/* accent strip */}
+            <View style={styles.dashAccent} />
+
             <View style={styles.dashboardContent}>
               <View style={styles.rankingSection}>
                 <View style={styles.rankingLeft}>
-                  <Text style={styles.rankingLabel}>Tu Posición Actual</Text>
+                  <Text style={styles.rankingLabel}>Tu Posición Global</Text>
                   <View style={styles.rankingRow}>
                     <Text style={styles.rankingNumber}>
-                      {userRanking ? `#${userRanking.position}` : '-'}
+                      {userRanking ? `#${userRanking.position}` : '—'}
                     </Text>
-                    {userRanking && userRanking.position <= 3 && (
-                      <View style={styles.rankingChange}>
-                        <Ionicons name="trophy" size={14} color={COLORS.primary} />
-                        <Text style={styles.rankingChangeText}>
-                          {userRanking.position === 1 ? '🥇 Top 1' : 
-                           userRanking.position === 2 ? '🥈 Top 2' : 
-                           '🥉 Top 3'}
-                        </Text>
-                      </View>
+                    {userRanking?.position <= 3 && (
+                      <Text style={styles.topBadge}>
+                        {userRanking.position === 1 ? '🥇' : userRanking.position === 2 ? '🥈' : '🥉'}
+                      </Text>
                     )}
                   </View>
-                  <Text style={styles.rankingSubtitle}>
-                    {userRanking 
-                      ? `${userRanking.total_predictions} predicciones • ${userRanking.effectiveness}% efectividad`
-                      : 'Haz predicciones para aparecer en el ranking'}
-                  </Text>
+                  {userRanking ? (
+                    <View style={styles.rankingStats}>
+                      <Text style={styles.rankingStatItem}>
+                        <Text style={styles.rankingStatValue}>{userRanking.total_predictions}</Text>
+                        {' '}pred.
+                      </Text>
+                      <Text style={styles.rankingStatDot}>·</Text>
+                      <Text style={styles.rankingStatItem}>
+                        <Text style={styles.rankingStatValue}>{userRanking.effectiveness || 0}%</Text>
+                        {' '}efectividad
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.rankingSubtitle}>Haz predicciones para subir en el ranking</Text>
+                  )}
                 </View>
-                <View style={styles.trophyBadge}>
-                  <Ionicons name="trophy" size={32} color={COLORS.primary} />
-                </View>
-              </View>
-
-              <View style={styles.dashboardActions}>
-                <TouchableOpacity 
-                  style={styles.primaryActionButton}
+                <TouchableOpacity
+                  style={styles.rankingBtn}
                   onPress={() => navigation.navigate('Rankings')}
                 >
-                  <Text style={styles.primaryActionText}>Ver Ranking</Text>
+                  <Ionicons name="podium" size={18} color={COLORS.backgroundDark} />
+                  <Text style={styles.rankingBtnText}>Ranking</Text>
                 </TouchableOpacity>
               </View>
+
+              {userRanking && (
+                <View style={styles.miniStatsRow}>
+                  <View style={styles.miniStat}>
+                    <Text style={styles.miniStatVal}>{userRanking.correct_predictions || 0}</Text>
+                    <Text style={styles.miniStatLabel}>Aciertos</Text>
+                  </View>
+                  <View style={styles.miniStatDiv} />
+                  <View style={styles.miniStat}>
+                    <Text style={styles.miniStatVal}>{user?.total_points || 0}</Text>
+                    <Text style={styles.miniStatLabel}>Puntos</Text>
+                  </View>
+                  <View style={styles.miniStatDiv} />
+                  <View style={styles.miniStat}>
+                    <Text style={styles.miniStatVal}>{userRanking.total_predictions || 0}</Text>
+                    <Text style={styles.miniStatLabel}>Predicciones</Text>
+                  </View>
+                </View>
+              )}
             </View>
           </LinearGradient>
         </View>
+        </Animated.View>
 
         {/* Predicciones Disponibles Section */}
+        <Animated.View style={sectionStyle(3)}>
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Partidos Disponibles</Text>
@@ -306,8 +390,10 @@ const HomeScreen = ({ navigation }) => {
             </View>
           )}
         </View>
+        </Animated.View>
 
         {/* Tu Actividad Section */}
+        <Animated.View style={sectionStyle(4)}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tu Actividad</Text>
           <View style={styles.statsGrid}>
@@ -327,6 +413,7 @@ const HomeScreen = ({ navigation }) => {
             </View>
           </View>
         </View>
+        </Animated.View>
 
         {/* Bottom spacing for FAB */}
         <View style={{ height: 100 }} />
@@ -348,6 +435,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0a0e14',
   },
+  mundialBanner: { marginHorizontal: 16, marginBottom: 16, borderRadius: 16, overflow: 'hidden' },
+  mundialImageBg: { borderRadius: 16, minHeight: 110 },
+  mundialOverlay: { backgroundColor: 'rgba(0,0,0,0.55)', padding: 16, borderRadius: 16 },
+  mundialContent: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  mundialText: { flex: 1 },
+  mundialTitle: { color: '#ffffff', fontWeight: 'bold', fontSize: 16, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  mundialSub: { color: COLORS.primary, fontSize: 12, marginTop: 2, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  mundialBadge: { backgroundColor: COLORS.primary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  mundialBadgeText: { color: COLORS.backgroundDark, fontSize: 10, fontWeight: 'bold' },
+  mundialFlags: { flexDirection: 'row', alignItems: 'center' },
+  mundialFlag: { fontSize: 22, marginRight: 6 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -432,51 +530,33 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   dashboardCard: {
-    borderRadius: 16,
-    padding: 24,
+    borderRadius: 18,
+    padding: 20,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderColor: 'rgba(0,230,119,0.18)',
     overflow: 'hidden',
   },
-  abstractBlur1: {
+  dashAccent: {
     position: 'absolute',
-    right: -32,
-    top: -32,
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    backgroundColor: 'rgba(0, 230, 119, 0.1)',
-    opacity: 0.3,
+    top: 0, left: 0, right: 0,
+    height: 2,
+    backgroundColor: COLORS.primary,
   },
-  abstractBlur2: {
-    position: 'absolute',
-    left: -32,
-    bottom: -32,
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    backgroundColor: 'rgba(0, 230, 119, 0.05)',
-    opacity: 0.3,
-  },
-  dashboardContent: {
-    position: 'relative',
-    zIndex: 10,
-  },
+  dashboardContent: {},
   rankingSection: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 24,
+    alignItems: 'center',
+    marginBottom: 16,
   },
-  rankingLeft: {
-    flex: 1,
-  },
+  rankingLeft: { flex: 1 },
   rankingLabel: {
-    fontSize: 13,
-    color: 'rgba(255, 255, 255, 0.6)',
-    fontWeight: '500',
-    marginBottom: 8,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.55)',
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    marginBottom: 6,
+    textTransform: 'uppercase',
   },
   rankingRow: {
     flexDirection: 'row',
@@ -485,65 +565,48 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   rankingNumber: {
-    fontSize: 36,
+    fontSize: 40,
     color: '#ffffff',
     fontWeight: '900',
+    lineHeight: 44,
   },
-  rankingChange: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-  },
-  rankingChangeText: {
-    fontSize: 13,
-    color: COLORS.primary,
-    fontWeight: '700',
-  },
+  topBadge: { fontSize: 22 },
+  rankingStats: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  rankingStatItem: { color: 'rgba(255,255,255,0.5)', fontSize: 12 },
+  rankingStatValue: { color: COLORS.primary, fontWeight: '700' },
+  rankingStatDot: { color: 'rgba(255,255,255,0.25)', fontSize: 12 },
   rankingSubtitle: {
     fontSize: 11,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: 'rgba(255, 255, 255, 0.4)',
     marginTop: 4,
+    lineHeight: 16,
   },
-  trophyBadge: {
-    width: 56,
-    height: 56,
-    borderRadius: 12,
-    backgroundColor: 'rgba(0, 230, 119, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dashboardActions: {
+  rankingBtn: {
     flexDirection: 'row',
-    gap: 12,
-  },
-  primaryActionButton: {
-    flex: 1,
+    alignItems: 'center',
+    gap: 6,
     backgroundColor: COLORS.primary,
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
   },
-  primaryActionText: {
-    color: '#0a0e14',
-    fontSize: 14,
+  rankingBtnText: {
+    color: COLORS.backgroundDark,
     fontWeight: '700',
+    fontSize: 13,
   },
-  secondaryActionButton: {
-    flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    paddingVertical: 14,
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+  miniStatsRow: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    borderRadius: 12,
+    padding: 12,
   },
-  secondaryActionText: {
-    color: '#ffffff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
+  miniStat: { flex: 1, alignItems: 'center' },
+  miniStatVal: { fontSize: 18, fontWeight: 'bold', color: COLORS.white },
+  miniStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
+  miniStatDiv: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 4 },
   section: {
-    marginTop: 32,
+    marginTop: 28,
     paddingHorizontal: 24,
   },
   sectionHeader: {
@@ -553,27 +616,32 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   sectionTitle: {
-    fontSize: 20,
+    fontSize: 18,
     color: '#ffffff',
     fontWeight: '700',
   },
   seeAllText: {
-    fontSize: 14,
+    fontSize: 13,
     color: COLORS.primary,
     fontWeight: '600',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: COLORS.primary + '18',
+    borderRadius: 20,
+    overflow: 'hidden',
   },
   matchesList: {
     paddingRight: 24,
   },
   matchCard: {
-    width: 280,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    width: 270,
+    backgroundColor: COLORS.cardDark,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 16,
+    borderColor: COLORS.primary + '22',
+    borderRadius: 18,
     padding: 16,
-    marginRight: 16,
-    gap: 16,
+    marginRight: 14,
+    gap: 14,
   },
   matchCardHeader: {
     flexDirection: 'row',
@@ -658,16 +726,14 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
   predictMatchButton: {
-    backgroundColor: 'rgba(0, 230, 119, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 230, 119, 0.2)',
-    paddingVertical: 10,
+    backgroundColor: COLORS.primary,
+    paddingVertical: 11,
     borderRadius: 10,
     alignItems: 'center',
   },
   predictMatchButtonText: {
-    color: COLORS.primary,
-    fontSize: 12,
+    color: COLORS.backgroundDark,
+    fontSize: 13,
     fontWeight: '700',
   },
   emptyMatches: {

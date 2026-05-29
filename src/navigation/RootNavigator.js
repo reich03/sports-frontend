@@ -26,6 +26,15 @@ import RankingsScreen from '../screens/rankings/RankingsScreen';
 import GroupsScreen from '../screens/groups/GroupsScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 
+// Tournament (Mundial) screens
+import TournamentHomeScreen from '../screens/tournament/TournamentHomeScreen';
+import TournamentMatchesScreen from '../screens/tournament/TournamentMatchesScreen';
+import TournamentSpecialsScreen from '../screens/tournament/TournamentSpecialsScreen';
+import TournamentLeaderboardScreen from '../screens/tournament/TournamentLeaderboardScreen';
+import TournamentGroupsScreen from '../screens/tournament/TournamentGroupsScreen';
+import TournamentJoinScreen from '../screens/tournament/TournamentJoinScreen';
+import TeamDetailScreen from '../screens/tournament/TeamDetailScreen';
+
 // Admin screens
 import AdminDashboard from '../screens/admin/AdminDashboard';
 import LeagueManagement from '../screens/admin/LeagueManagement';
@@ -183,6 +192,43 @@ const MainStack = () => {
         }}
       />
       
+      {/* ─── Mundial 2026 Screens ─── */}
+      <Stack.Screen
+        name="TournamentHome"
+        component={TournamentHomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TournamentMatches"
+        component={TournamentMatchesScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TournamentSpecials"
+        component={TournamentSpecialsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TournamentLeaderboard"
+        component={TournamentLeaderboardScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TournamentGroups"
+        component={TournamentGroupsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TournamentJoin"
+        component={TournamentJoinScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TeamDetail"
+        component={TeamDetailScreen}
+        options={{ headerShown: false }}
+      />
+
       {/* Admin Screens */}
       <Stack.Screen 
         name="AdminDashboard" 

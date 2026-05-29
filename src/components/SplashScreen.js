@@ -5,8 +5,8 @@ import {
   StyleSheet,
   Animated,
   Dimensions,
+  Image,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
 
 const { width } = Dimensions.get('window');
@@ -16,7 +16,7 @@ const SplashScreen = () => {
   const [logoScale] = useState(new Animated.Value(0.8));
   const [logoOpacity] = useState(new Animated.Value(0));
   const [textOpacity] = useState(new Animated.Value(0));
-  const [loadingText, setLoadingText] = useState('Syncing Market Data...');
+    const [loadingText, setLoadingText] = useState('Cargando predicciones...');
   const [progressPercent, setProgressPercent] = useState(0);
 
   useEffect(() => {
@@ -61,12 +61,12 @@ const SplashScreen = () => {
       });
     }, 52);
 
-    // Loading text variations (más lento para leer)
+    // Loading text variations
     const textVariations = [
-      'Syncing Market Data...',
-      'Loading Predictions...',
-      'Preparing Dashboard...',
-      'Almost Ready...',
+      'Cargando predicciones...',
+      'Preparando partidos...',
+      'Sincronizando datos...',
+      '¡Casi listo!',
     ];
     let textIndex = 0;
     const textInterval = setInterval(() => {
@@ -98,7 +98,11 @@ const SplashScreen = () => {
         ]}
       >
         <View style={styles.logoBox}>
-          <Ionicons name="stats-chart" size={48} color={COLORS.primary} />
+          <Image
+            source={require('../../assets/IconoMasterSports.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
         </View>
       </Animated.View>
 
@@ -107,7 +111,7 @@ const SplashScreen = () => {
         <Text style={styles.brandText}>
           MASTER<Text style={styles.brandTextGreen}>SPORTS</Text>
         </Text>
-        <Text style={styles.tagline}>ELIGE COMPITE GANA</Text>
+        <Text style={styles.tagline}>ELIGE · COMPITE · GANA</Text>
       </Animated.View>
 
       {/* Progress Bar */}
@@ -128,8 +132,7 @@ const SplashScreen = () => {
 
       {/* Footer */}
       <View style={styles.footer}>
-        <Ionicons name="flash" size={12} color={COLORS.primary} />
-        <Text style={styles.footerText}>POWERED BY MASTER SPORTS</Text>
+        <Text style={styles.footerText}>© 2026 MASTER SPORTS</Text>
       </View>
     </View>
   );
@@ -147,19 +150,22 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   logoBox: {
-    width: 100,
-    height: 100,
-    backgroundColor: 'rgba(0, 230, 119, 0.1)',
-    borderRadius: 24,
+    width: 130,
+    height: 130,
+    backgroundColor: '#ffffff',
+    borderRadius: 30,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: 'rgba(0, 230, 119, 0.3)',
-    shadowColor: COLORS.primary,
+    shadowColor: '#00000088',
     shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOpacity: 0.5,
+    shadowRadius: 18,
+    elevation: 14,
+    padding: 14,
+  },
+  logoImage: {
+    width: '100%',
+    height: '100%',
   },
   brandContainer: {
     alignItems: 'center',

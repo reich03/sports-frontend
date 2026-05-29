@@ -5,7 +5,9 @@
     "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
+    "icon": "./assets/IconoFondoBlanco.png",
     "splash": {
+      "image": "./assets/IconoMasterSports.png",
       "backgroundColor": "#0f2319",
       "resizeMode": "contain"
     },
@@ -18,6 +20,7 @@
     },
     "android": {
       "adaptiveIcon": {
+        "foregroundImage": "./assets/IconoMasterSports.png",
         "backgroundColor": "#0f2319"
       },
       "package": "com.progana.app",
