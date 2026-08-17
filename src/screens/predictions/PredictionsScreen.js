@@ -1,15 +1,17 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, ScrollView,
+  View, Text, StyleSheet, FlatList,
   TouchableOpacity, ActivityIndicator, RefreshControl,
   StatusBar, Animated, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../../constants/theme';
 import { predictionService } from '../../services';
 import { BASE_URL } from '../../constants/config';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
+import { arePredictionsClosed } from '../../utils/predictions';
 
 const FILTERS = [
   { key: 'all', label: 'Todas', icon: 'list' },
@@ -26,7 +28,7 @@ const getTeamLogo = (team) => {
   return `${BASE_URL}${team.logo}`;
 };
 
-const TeamAvatar = ({ team }) => {
+const TeamAvatar = ({ team, styles, C }) => {
   const logo = getTeamLogo(team);
   const initials = (team?.short_name || team?.name || '?').substring(0, 3).toUpperCase();
   return (
@@ -40,7 +42,7 @@ const TeamAvatar = ({ team }) => {
   );
 };
 
-const PredictionCard = ({ item }) => {
+const PredictionCard = ({ item, styles, C, navigation }) => {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(16)).current;
 
@@ -70,10 +72,12 @@ const PredictionCard = ({ item }) => {
   const awayTeam = match?.away_team || match?.AwayTeam;
   const homeName = homeTeam?.name || 'Local';
   const awayName = awayTeam?.name || 'Visitante';
+  const canEdit = !isProcessed && match && !arePredictionsClosed(match);
+  const isClosedPending = !isProcessed && match && arePredictionsClosed(match);
 
   const statusColor = isProcessed
     ? (isCorrect ? '#22c55e' : '#ef4444')
-    : COLORS.warning;
+    : C.warning;
 
   return (
     <Animated.View style={[styles.card, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -87,7 +91,7 @@ const PredictionCard = ({ item }) => {
             <Ionicons
               name={sport?.name === 'Fútbol' ? 'football' : sport?.name === 'Fórmula 1' ? 'speedometer' : 'trophy'}
               size={12}
-              color={COLORS.primary}
+              color={C.primary}
             />
             <Text style={styles.sportText}>{sport?.name || 'Deporte'}</Text>
             {(league?.name || round?.name) ? (
@@ -124,7 +128,7 @@ const PredictionCard = ({ item }) => {
             </View>
           ) : (
             <View style={styles.pendingPill}>
-              <Ionicons name="time-outline" size={12} color={COLORS.warning} />
+              <Ionicons name="time-outline" size={12} color={C.warning} />
               <Text style={styles.pendingPillText}>Pendiente</Text>
             </View>
           )}
@@ -136,7 +140,7 @@ const PredictionCard = ({ item }) => {
           <View style={styles.matchBlock}>
             {/* Home */}
             <View style={styles.teamCol}>
-              <TeamAvatar team={homeTeam} />
+              <TeamAvatar team={homeTeam} styles={styles} C={C} />
               <Text style={styles.teamName} numberOfLines={2}>{homeName}</Text>
             </View>
             {/* Scores */}
@@ -168,7 +172,7 @@ const PredictionCard = ({ item }) => {
             </View>
             {/* Away */}
             <View style={[styles.teamCol, { alignItems: 'flex-end' }]}>
-              <TeamAvatar team={awayTeam} />
+              <TeamAvatar team={awayTeam} styles={styles} C={C} />
               <Text style={[styles.teamName, { textAlign: 'right' }]} numberOfLines={2}>{awayName}</Text>
             </View>
           </View>
@@ -194,10 +198,24 @@ const PredictionCard = ({ item }) => {
             </View>
           ) : (
             <View style={styles.awaitingRow}>
-              <Ionicons name="hourglass-outline" size={12} color={COLORS.warning} />
+              <Ionicons name="hourglass-outline" size={12} color={C.warning} />
               <Text style={styles.awaitingText}>Esperando resultado</Text>
             </View>
           )}
+          {canEdit ? (
+            <TouchableOpacity
+              style={styles.editBtn}
+              onPress={() => navigation.navigate('CreatePrediction', { matchId: match.id })}
+            >
+              <Ionicons name="create-outline" size={14} color={C.warning} />
+              <Text style={styles.editBtnText}>Editar predicción</Text>
+            </TouchableOpacity>
+          ) : isClosedPending ? (
+            <View style={styles.closedRow}>
+              <Ionicons name="lock-closed" size={12} color={C.textSecondary} />
+              <Text style={styles.closedRowText}>Ya no puedes editar</Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </Animated.View>
@@ -206,6 +224,9 @@ const PredictionCard = ({ item }) => {
 
 const PredictionsScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
   const [predictions, setPredictions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -241,185 +262,278 @@ const PredictionsScreen = ({ navigation }) => {
   const pts = predictions.reduce((s, p) => s + (p.points_earned || 0), 0);
   const efectividad = processed.length > 0 ? Math.round((acertadas / processed.length) * 100) : 0;
 
-  if (loading) {
-    return (
-      <View style={[styles.center, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </View>
-    );
-  }
-
-  return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" />
-
-      {/* Gradient glow at top */}
+  const renderListHeader = () => (
+    <View style={styles.headerBlock}>
       <LinearGradient
-        colors={['rgba(0,230,119,0.08)', 'transparent']}
-        style={styles.topGlow}
-        pointerEvents="none"
-      />
-
-      {/* Header */}
-      <LinearGradient
-        colors={['rgba(0,230,119,0.1)', 'transparent']}
-        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-        style={styles.header}
+        colors={C.gradientHero}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroCard}
       >
-        <View>
-          <Text style={styles.headerTitle}>Mis Predicciones</Text>
-          <Text style={styles.headerSub}>Historial completo</Text>
+        <View style={styles.heroTop}>
+          <Text
+            style={styles.heroTitle}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+          >
+            Mis Predicciones
+          </Text>
+          <View style={styles.countBadge}>
+            <Text style={styles.countBadgeNum}>{efectividad}%</Text>
+            <Text style={styles.countBadgeLabel}>efect.</Text>
+          </View>
         </View>
-        <View style={styles.effBadge}>
-          <Text style={styles.effValue}>{efectividad}%</Text>
-          <Text style={styles.effLabel}>efectividad</Text>
+
+        <View style={styles.statsDivider} />
+
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <Text style={styles.statVal}>{total}</Text>
+            <Text style={styles.statLabel}>Total</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={[styles.statVal, { color: '#22c55e' }]}>{acertadas}</Text>
+            <Text style={styles.statLabel}>Aciertos</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={[styles.statVal, { color: C.primary }]}>{pts}</Text>
+            <Text style={styles.statLabel}>Puntos</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={[styles.statVal, { color: '#ef4444' }]}>{falladas}</Text>
+            <Text style={styles.statLabel}>Falladas</Text>
+          </View>
         </View>
       </LinearGradient>
 
-      {/* Stats row */}
-      <View style={styles.statsRow}>
-        <View style={styles.statItem}>
-          <Text style={styles.statVal}>{total}</Text>
-          <Text style={styles.statLabel}>Total</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={[styles.statVal, { color: '#22c55e' }]}>{acertadas}</Text>
-          <Text style={styles.statLabel}>Aciertos</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={[styles.statVal, { color: COLORS.primary }]}>{pts}</Text>
-          <Text style={styles.statLabel}>Puntos</Text>
-        </View>
-        <View style={styles.statDivider} />
-        <View style={styles.statItem}>
-          <Text style={[styles.statVal, { color: '#ef4444' }]}>{falladas}</Text>
-          <Text style={styles.statLabel}>Falladas</Text>
+      <View style={styles.toolbarCard}>
+        <Text style={styles.toolbarLabel}>Filtrar</Text>
+        <View style={styles.typeTabs}>
+          {FILTERS.map((f) => {
+            const active = filter === f.key;
+            return (
+              <TouchableOpacity
+                key={f.key}
+                style={[styles.typeTab, active && styles.typeTabActive]}
+                onPress={() => setFilter(f.key)}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={f.icon}
+                  size={15}
+                  color={active ? C.onAccent : C.primary}
+                />
+                <Text
+                  style={[styles.typeTabText, active && styles.typeTabTextActive]}
+                  numberOfLines={1}
+                >
+                  {f.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </View>
       </View>
 
-      {/* Filter chips — horizontal scroll so they never get cut */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.chipScrollView}
-        contentContainerStyle={styles.filterRow}
-      >
-        {FILTERS.map(f => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.chip, filter === f.key && styles.chipActive]}
-            onPress={() => setFilter(f.key)}
-          >
-            <Ionicons
-              name={f.icon}
-              size={13}
-              color={filter === f.key ? COLORS.backgroundDark : COLORS.textSecondary}
-            />
-            <Text style={[styles.chipText, filter === f.key && styles.chipTextActive]}>
-              {f.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {predictions.length === 0 ? (
-        <View style={styles.empty}>
-          <Ionicons name="football-outline" size={52} color={COLORS.border} />
-          <Text style={styles.emptyTitle}>Sin predicciones</Text>
-          <Text style={styles.emptyText}>Ve al inicio para hacer tu primera predicción</Text>
+      {loading && !refreshing ? (
+        <View style={styles.inlineLoader}>
+          <ActivityIndicator size="small" color={C.accent} />
+          <Text style={styles.inlineLoaderText}>Cargando predicciones...</Text>
         </View>
-      ) : (
-        <FlatList
-          data={predictions}
-          keyExtractor={item => item.id?.toString()}
-          contentContainerStyle={{ padding: 14, paddingTop: 6, paddingBottom: 42 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
-          showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => <PredictionCard item={item} />}
-        />
-      )}
+      ) : null}
+    </View>
+  );
+
+  const renderEmpty = () => {
+    if (loading && !refreshing) return null;
+    return (
+      <View style={styles.empty}>
+        <View style={styles.emptyIconWrap}>
+          <Ionicons name="football-outline" size={40} color={`${C.primary}60`} />
+        </View>
+        <Text style={styles.emptyTitle}>Sin predicciones</Text>
+        <Text style={styles.emptyText}>Ve al inicio para hacer tu primera predicción</Text>
+      </View>
+    );
+  };
+
+  return (
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
+
+      <FlatList
+        data={loading && !refreshing ? [] : predictions}
+        keyExtractor={(item) => item.id?.toString()}
+        ListHeaderComponent={renderListHeader}
+        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={[
+          styles.listContent,
+          (predictions.length === 0 || (loading && !refreshing)) && styles.listContentEmpty,
+        ]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />
+        }
+        showsVerticalScrollIndicator={false}
+        renderItem={({ item }) => <PredictionCard item={item} styles={styles} C={C} navigation={navigation} />}
+      />
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#07120d' },
-  center: { flex: 1, backgroundColor: '#07120d', justifyContent: 'center', alignItems: 'center' },
-
-  topGlow: {
-    position: 'absolute', top: 0, left: 0, right: 0, height: 220,
-    pointerEvents: 'none',
+const createStyles = (C) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.background },
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 32,
   },
-
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0,230,119,0.12)',
+  listContentEmpty: {
+    flexGrow: 1,
   },
-  headerTitle: { fontSize: 22, fontWeight: '800', color: COLORS.white, letterSpacing: -0.5 },
-  headerSub: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
-  effBadge: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,230,119,0.12)',
-    borderRadius: 14,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  headerBlock: {
+    paddingTop: 8,
+    marginBottom: 4,
+  },
+  heroCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0,230,119,0.2)',
+    borderColor: `${C.primary}20`,
+    backgroundColor: C.cardBackground,
   },
-  effValue: { color: COLORS.primary, fontSize: 18, fontWeight: '800' },
-  effLabel: { color: 'rgba(255,255,255,0.5)', fontSize: 10 },
-
+  heroTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  heroTitle: {
+    flex: 1,
+    fontSize: 20,
+    fontWeight: '800',
+    color: C.white,
+    letterSpacing: -0.5,
+    minWidth: 0,
+  },
+  countBadge: {
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: `${C.primary}18`,
+    borderWidth: 1,
+    borderColor: `${C.primary}35`,
+    flexShrink: 0,
+  },
+  countBadgeNum: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: C.primary,
+  },
+  countBadgeLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: `${C.primary}90`,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statsDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginVertical: 14,
+  },
   statsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 14,
-    marginTop: 10,
-    marginBottom: 8,
-    backgroundColor: COLORS.cardDark,
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
   },
   statItem: { flex: 1, alignItems: 'center' },
-  statVal: { fontSize: 20, fontWeight: 'bold', color: COLORS.white },
-  statLabel: { fontSize: 10, color: COLORS.textSecondary, marginTop: 2 },
-  statDivider: { width: 1, height: 34, backgroundColor: COLORS.border },
-
-  chipScrollView: { flexGrow: 0, flexShrink: 0 },
-  filterRow: { paddingHorizontal: 14, paddingTop: 4, paddingBottom: 8, gap: 8, flexDirection: 'row', alignItems: 'center' },
-  chip: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    paddingHorizontal: 12, paddingVertical: 6,paddingBottom: 2,
-    borderRadius: 20,
-    backgroundColor: COLORS.cardDark,
-    borderWidth: 1, borderColor: COLORS.border,
-    alignSelf: 'flex-start',
+  statVal: { fontSize: 18, fontWeight: '800', color: C.white },
+  statLabel: { fontSize: 10, color: C.textSecondary, marginTop: 2, fontWeight: '500' },
+  statDivider: { width: 1, height: 34, backgroundColor: C.surfaceBorder },
+  toolbarCard: {
+    backgroundColor: C.cardBackground,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: `${C.primary}18`,
+    gap: 10,
   },
-  chipActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  chipText: { color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
-  chipTextActive: { color: COLORS.backgroundDark, fontWeight: '700' },
-
-  empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40, gap: 12 },
-  emptyTitle: { color: COLORS.white, fontSize: 18, fontWeight: 'bold' },
-  emptyText: { color: COLORS.textSecondary, fontSize: 13, textAlign: 'center' },
+  toolbarLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  typeTabs: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  typeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: `${C.primary}10`,
+    borderWidth: 1,
+    borderColor: `${C.primary}25`,
+  },
+  typeTabActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  typeTabText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.primary,
+  },
+  typeTabTextActive: {
+    color: C.onAccent,
+  },
+  inlineLoader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
+  },
+  inlineLoaderText: {
+    fontSize: 13,
+    color: C.textSecondary,
+    fontWeight: '500',
+  },
+  empty: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: `${C.primary}10`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: { color: C.white, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  emptyText: { color: C.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 18 },
 
   card: {
     flexDirection: 'row',
-    backgroundColor: COLORS.cardDark,
+    backgroundColor: C.cardDark,
     borderRadius: 16,
     marginBottom: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.07)',
+    borderColor: C.surfaceBorder,
   },
   accent: { width: 4 },
   cardContent: { flex: 1 },
@@ -429,9 +543,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingTop: 12, paddingBottom: 2,
   },
   sportRow: { flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1 },
-  sportText: { color: COLORS.primary, fontSize: 11, fontWeight: '600' },
-  dotSep: { color: COLORS.border, fontSize: 11 },
-  leagueText: { color: COLORS.textSecondary, fontSize: 11, flex: 1 },
+  sportText: { color: C.primary, fontSize: 11, fontWeight: '600' },
+  dotSep: { color: C.border, fontSize: 11 },
+  leagueText: { color: C.textSecondary, fontSize: 11, flex: 1 },
   statusPill: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
@@ -444,52 +558,72 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 20,
     backgroundColor: 'rgba(234,179,8,0.15)',
   },
-  pendingPillText: { color: COLORS.warning, fontSize: 11, fontWeight: '600' },
+  pendingPillText: { color: C.warning, fontSize: 11, fontWeight: '600' },
 
-  dateText: { color: COLORS.textSecondary, fontSize: 11, paddingHorizontal: 12, marginBottom: 10 },
+  dateText: { color: C.textSecondary, fontSize: 11, paddingHorizontal: 12, marginBottom: 10 },
 
   matchBlock: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, marginBottom: 10, gap: 6 },
   teamCol: { flex: 1, alignItems: 'flex-start', gap: 6 },
   teamAvatar: {
     width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderWidth: 1, borderColor: COLORS.primary + '33',
+    backgroundColor: C.surfaceMuted,
+    borderWidth: 1, borderColor: C.primary + '33',
     justifyContent: 'center', alignItems: 'center',
     overflow: 'hidden',
   },
   teamAvatarImg: { width: '88%', height: '88%' },
-  teamAvatarText: { color: COLORS.primary, fontSize: 11, fontWeight: '700' },
-  teamName: { color: COLORS.white, fontSize: 12, fontWeight: '600' },
+  teamAvatarText: { color: C.primary, fontSize: 11, fontWeight: '700' },
+  teamName: { color: C.white, fontSize: 12, fontWeight: '600' },
 
   scoreBlock: { alignItems: 'center' },
   scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   scoreCell: {
-    backgroundColor: COLORS.backgroundDark, borderRadius: 8,
+    backgroundColor: C.surfaceMuted, borderRadius: 8,
     paddingHorizontal: 10, paddingVertical: 6, alignItems: 'center', minWidth: 38,
-    borderWidth: 1, borderColor: COLORS.border,
+    borderWidth: 1, borderColor: C.border,
   },
   scoreCellFinal: { borderColor: '#22c55e44', backgroundColor: 'rgba(34,197,94,0.08)' },
-  scoreCellLabel: { color: COLORS.textSecondary, fontSize: 8, letterSpacing: 0.5 },
-  scoreCellValue: { color: COLORS.primary, fontSize: 16, fontWeight: 'bold' },
+  scoreCellLabel: { color: C.textSecondary, fontSize: 8, letterSpacing: 0.5 },
+  scoreCellValue: { color: C.primary, fontSize: 16, fontWeight: 'bold' },
   scoreCellValueFinal: { color: '#22c55e' },
-  scoreSep: { color: COLORS.textSecondary, fontWeight: 'bold', fontSize: 14 },
+  scoreSep: { color: C.textSecondary, fontWeight: 'bold', fontSize: 14 },
 
   f1Block: { paddingHorizontal: 12, marginBottom: 10 },
-  f1Name: { color: COLORS.white, fontWeight: '700', fontSize: 14, marginBottom: 6 },
+  f1Name: { color: C.white, fontWeight: '700', fontSize: 14, marginBottom: 6 },
   podiumRow: { gap: 4 },
-  podiumItem: { color: COLORS.primary, fontSize: 13 },
+  podiumItem: { color: C.primary, fontSize: 13 },
 
   cardFooter: {
-    borderTopWidth: 1, borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopWidth: 1, borderTopColor: C.surfaceBorder,
     paddingHorizontal: 12, paddingVertical: 10,
   },
   ptsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  ptsLabel: { color: COLORS.textSecondary, fontSize: 12 },
+  ptsLabel: { color: C.textSecondary, fontSize: 12 },
   ptsValue: { fontSize: 18, fontWeight: 'bold' },
-  ptsPositive: { color: COLORS.primary },
-  ptsZero: { color: COLORS.textSecondary },
+  ptsPositive: { color: C.primary },
+  ptsZero: { color: C.textSecondary },
   awaitingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5 },
-  awaitingText: { color: COLORS.textSecondary, fontSize: 12 },
+  awaitingText: { color: C.textSecondary, fontSize: 12 },
+  editBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: `${C.warning}44`,
+  },
+  editBtnText: { color: C.warning, fontSize: 12, fontWeight: '600' },
+  closedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    marginTop: 10,
+  },
+  closedRowText: { color: C.textSecondary, fontSize: 11 },
 
   tournamentBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,

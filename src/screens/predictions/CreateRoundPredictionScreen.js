@@ -17,6 +17,7 @@ import { predictionService } from '../../services';
 import { COLORS } from '../../constants/theme';
 import { BASE_URL } from '../../constants/config';
 import StatusModal from '../../components/StatusModal';
+import { arePredictionsClosed, PREDICTIONS_CLOSED_MESSAGE } from '../../utils/predictions';
 
 const CreateRoundPredictionScreen = ({ route, navigation }) => {
   const { matches, roundName, leagueName } = route.params;
@@ -66,9 +67,11 @@ const CreateRoundPredictionScreen = ({ route, navigation }) => {
     });
   };
 
+  const openMatches = matches.filter((m) => !arePredictionsClosed(m));
+
   const validatePredictions = () => {
-    for (const matchId of Object.keys(predictions)) {
-      const { homeScore, awayScore } = predictions[matchId];
+    for (const match of openMatches) {
+      const { homeScore, awayScore } = predictions[match.id] || {};
       if (homeScore === '' || awayScore === '') {
         return false;
       }
@@ -79,11 +82,18 @@ const CreateRoundPredictionScreen = ({ route, navigation }) => {
         return false;
       }
     }
-    return true;
+    return openMatches.length > 0;
   };
 
   const handleSubmit = async () => {
-    // Validate all predictions are filled
+    if (openMatches.length === 0) {
+      setErrorModal({
+        visible: true,
+        title: 'Predicciones cerradas',
+        message: PREDICTIONS_CLOSED_MESSAGE,
+      });
+      return;
+    }
     if (!validatePredictions()) {
       setErrorModal({
         visible: true,
@@ -96,13 +106,14 @@ const CreateRoundPredictionScreen = ({ route, navigation }) => {
     setLoading(true);
     try {
       // Create all predictions
-      const predictionPromises = Object.entries(predictions).map(([matchId, scores]) => {
+      const predictionPromises = openMatches.map((match) => {
+        const scores = predictions[match.id];
         return predictionService.createPrediction({
-          match_id: matchId,
+          match_id: match.id,
           prediction_data: {
-            home_score: parseInt(scores.homeScore),
-            away_score: parseInt(scores.awayScore),
-          }
+            home_score: parseInt(scores.homeScore, 10),
+            away_score: parseInt(scores.awayScore, 10),
+          },
         });
       });
 
@@ -126,9 +137,11 @@ const CreateRoundPredictionScreen = ({ route, navigation }) => {
     }
   };
 
-  const getCompletedCount = () => {
-    return Object.values(predictions).filter(p => p.homeScore !== '' && p.awayScore !== '').length;
-  };
+  const getCompletedCount = () =>
+    openMatches.filter((m) => {
+      const p = predictions[m.id];
+      return p?.homeScore !== '' && p?.awayScore !== '';
+    }).length;
 
   return (
     <View style={styles.container}>
@@ -165,24 +178,26 @@ const CreateRoundPredictionScreen = ({ route, navigation }) => {
               <Text style={styles.infoBoxTitle}>Predicción de Jornada Completa</Text>
             </View>
             <Text style={styles.infoBoxText}>
-              Completa los marcadores de todos los {matches.length} partidos de esta jornada.
+              Completa los marcadores de los {openMatches.length} partidos disponibles de esta jornada.
             </Text>
             <View style={styles.progressBar}>
               <View 
                 style={[
                   styles.progressFill, 
-                  { width: `${(getCompletedCount() / matches.length) * 100}%` }
+                  { width: `${openMatches.length ? (getCompletedCount() / openMatches.length) * 100 : 0}%` }
                 ]} 
               />
             </View>
             <Text style={styles.progressText}>
-              {getCompletedCount()} de {matches.length} completados
+              {getCompletedCount()} de {openMatches.length} completados
             </Text>
           </View>
 
           {/* Matches */}
-          {matches.map((match, index) => (
-            <View key={match.id} style={styles.matchCard}>
+          {matches.map((match, index) => {
+            const matchClosed = arePredictionsClosed(match);
+            return (
+            <View key={match.id} style={[styles.matchCard, matchClosed && styles.matchCardClosed]}>
               {/* Match Number */}
               <View style={styles.matchNumber}>
                 <Text style={styles.matchNumberText}>Partido {index + 1}</Text>
@@ -213,23 +228,25 @@ const CreateRoundPredictionScreen = ({ route, navigation }) => {
                 {/* Score Inputs */}
                 <View style={styles.scoreSection}>
                   <TextInput
-                    style={styles.scoreInput}
+                    style={[styles.scoreInput, matchClosed && styles.scoreInputDisabled]}
                     keyboardType="number-pad"
                     maxLength={2}
                     placeholder="0"
                     placeholderTextColor="#64748b"
                     value={predictions[match.id]?.homeScore}
                     onChangeText={(value) => updateScore(match.id, 'homeScore', value)}
+                    editable={!matchClosed}
                   />
                   <Text style={styles.scoreSeparator}>-</Text>
                   <TextInput
-                    style={styles.scoreInput}
+                    style={[styles.scoreInput, matchClosed && styles.scoreInputDisabled]}
                     keyboardType="number-pad"
                     maxLength={2}
                     placeholder="0"
                     placeholderTextColor="#64748b"
                     value={predictions[match.id]?.awayScore}
                     onChangeText={(value) => updateScore(match.id, 'awayScore', value)}
+                    editable={!matchClosed}
                   />
                 </View>
 
@@ -253,15 +270,20 @@ const CreateRoundPredictionScreen = ({ route, navigation }) => {
                 </View>
               </View>
 
-              {/* Completion Check */}
-              {predictions[match.id]?.homeScore !== '' && predictions[match.id]?.awayScore !== '' && (
+              {matchClosed ? (
+                <View style={styles.closedBadge}>
+                  <Ionicons name="lock-closed" size={14} color={COLORS.warning} />
+                  <Text style={styles.closedText}>Predicciones cerradas</Text>
+                </View>
+              ) : predictions[match.id]?.homeScore !== '' && predictions[match.id]?.awayScore !== '' ? (
                 <View style={styles.completedBadge}>
                   <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />
                   <Text style={styles.completedText}>Completado</Text>
                 </View>
-              )}
+              ) : null}
             </View>
-          ))}
+            );
+          })}
 
           {/* Submit Button */}
           <TouchableOpacity
@@ -276,7 +298,7 @@ const CreateRoundPredictionScreen = ({ route, navigation }) => {
               <>
                 <Ionicons name="flash" size={20} color={COLORS.backgroundDark} />
                 <Text style={styles.submitButtonText}>
-                  ENVIAR {matches.length} PREDICCIONES
+                  ENVIAR {openMatches.length} PREDICCIONES
                 </Text>
               </>
             )}
@@ -423,6 +445,10 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 12,
   },
+  matchCardClosed: {
+    opacity: 0.65,
+    borderColor: 'rgba(234, 179, 8, 0.25)',
+  },
   matchNumber: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -497,6 +523,11 @@ const styles = StyleSheet.create({
     color: COLORS.white,
     textAlign: 'center',
   },
+  scoreInputDisabled: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    color: 'rgba(255, 255, 255, 0.4)',
+  },
   scoreSeparator: {
     fontSize: 24,
     fontWeight: '800',
@@ -516,6 +547,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: COLORS.success,
+  },
+  closedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(234, 179, 8, 0.2)',
+  },
+  closedText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.warning,
   },
   submitButton: {
     flexDirection: 'row',

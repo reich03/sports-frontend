@@ -1,13 +1,23 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, FlatList, Modal
+  ActivityIndicator, FlatList, Modal, StatusBar, TextInput, Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../../constants/theme';
 import tournamentService from '../../services/tournament.service';
 import StatusModal from '../../components/StatusModal';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
+import { BASE_URL } from '../../constants/config';
+
+const getTeamLogo = (team) => {
+  if (!team?.logo) return null;
+  if (team.logo.startsWith('file://') || team.logo.startsWith('http')) {
+    return team.logo;
+  }
+  return `${BASE_URL}${team.logo}`;
+};
 
 const POSITIONS_BASE = [
   { key: 'champion',   label: 'Campeón',      icon: '🏆', color: '#ffd700', pointsKey: 'champion_points' },
@@ -33,44 +43,106 @@ const getFlagEmoji = (country) => {
   return flags[country] || '🏳️';
 };
 
-const TeamPickerModal = ({ visible, teams, onSelect, onClose, selectedId }) => (
-  <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-    <View style={pk.overlay}>
-      <View style={pk.card}>
-        <View style={pk.header}>
-          <Text style={pk.title}>Selecciona un equipo</Text>
-          <TouchableOpacity onPress={onClose}>
-            <Ionicons name="close" size={24} color={COLORS.white} />
-          </TouchableOpacity>
-        </View>
-        <FlatList
-          data={teams}
-          keyExtractor={t => t.id}
-          numColumns={2}
-          style={{ backgroundColor: '#0f1e18' }}
-          contentContainerStyle={{ padding: 12, gap: 10, paddingBottom: 32 }}
-          columnWrapperStyle={{ gap: 10 }}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={[pk.teamItem, selectedId === item.id && pk.teamItemSelected]}
-              onPress={() => onSelect(item)}
-            >
-              <Text style={pk.teamFlag}>{getFlagEmoji(item.country)}</Text>
-              <Text style={[pk.teamName, selectedId === item.id && pk.teamNameSelected]} numberOfLines={2}>
-                {item.name}
-              </Text>
-              {selectedId === item.id && <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} style={{ position: 'absolute', top: 6, right: 6 }} />}
+const TeamPickerModal = ({ visible, teams, onSelect, onClose, selectedId, pk, C, searchQuery, onSearchChange }) => {
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = q
+    ? teams.filter((t) =>
+        [t.name, t.short_name, t.country].filter(Boolean).some((v) => v.toLowerCase().includes(q))
+      )
+    : teams;
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={pk.overlay}>
+        <View style={pk.card}>
+          <View style={pk.header}>
+            <View style={{ flex: 1 }}>
+              <Text style={pk.title}>Selecciona un equipo</Text>
+              <Text style={pk.subtitle}>{teams.length} equipos del torneo</Text>
+            </View>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={C.text} />
             </TouchableOpacity>
-          )}
-        />
+          </View>
+
+          <View style={pk.searchBox}>
+            <Ionicons name="search" size={18} color={C.textSecondary} />
+            <TextInput
+              style={pk.searchInput}
+              value={searchQuery}
+              onChangeText={onSearchChange}
+              placeholder="Buscar por nombre o país..."
+              placeholderTextColor={C.textSecondary}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 ? (
+              <TouchableOpacity onPress={() => onSearchChange('')}>
+                <Ionicons name="close-circle" size={18} color={C.textSecondary} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <FlatList
+            data={filtered}
+            keyExtractor={(t) => String(t.id)}
+            numColumns={2}
+            style={{ backgroundColor: C.cardDark }}
+            contentContainerStyle={{ padding: 12, gap: 10, paddingBottom: 32, flexGrow: 1 }}
+            columnWrapperStyle={{ gap: 10 }}
+            keyboardShouldPersistTaps="handled"
+            ListEmptyComponent={
+              <View style={pk.emptyPicker}>
+                <Ionicons name="football-outline" size={32} color={C.textSecondary} />
+                <Text style={pk.emptyPickerTitle}>
+                  {teams.length === 0 ? 'Sin equipos en el torneo' : 'Sin resultados'}
+                </Text>
+                <Text style={pk.emptyPickerText}>
+                  {teams.length === 0
+                    ? 'Agrega partidos con equipos en la liga del torneo para poder elegir el podio.'
+                    : 'Prueba con otro nombre o país.'}
+                </Text>
+              </View>
+            }
+            renderItem={({ item }) => {
+              const logo = getTeamLogo(item);
+              return (
+              <TouchableOpacity
+                style={[pk.teamItem, selectedId === item.id && pk.teamItemSelected]}
+                onPress={() => onSelect(item)}
+              >
+                {logo ? (
+                  <Image source={{ uri: logo }} style={pk.teamLogo} resizeMode="contain" />
+                ) : (
+                  <Text style={pk.teamFlag}>{getFlagEmoji(item.country)}</Text>
+                )}
+                <Text style={[pk.teamName, selectedId === item.id && pk.teamNameSelected]} numberOfLines={2}>
+                  {item.name}
+                </Text>
+                {item.short_name ? (
+                  <Text style={pk.teamShort} numberOfLines={1}>{item.short_name}</Text>
+                ) : null}
+                {selectedId === item.id ? (
+                  <Ionicons name="checkmark-circle" size={16} color={C.primary} style={{ position: 'absolute', top: 6, right: 6 }} />
+                ) : null}
+              </TouchableOpacity>
+              );
+            }}
+          />
+        </View>
       </View>
-    </View>
-  </Modal>
-);
+    </Modal>
+  );
+};
 
 export default function TournamentSpecialsScreen({ navigation, route }) {
   const { tournamentId } = route.params;
   const insets = useSafeAreaInsets();
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
+  const pk = useMemo(() => createPk(C), [C]);
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [locked, setLocked] = useState(false);
@@ -78,6 +150,8 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
   const [prediction, setPrediction] = useState(null);
   const [selections, setSelections] = useState({ champion: null, runnerUp: null, thirdPlace: null });
   const [pickerFor, setPickerFor] = useState(null);
+  const [teamSearch, setTeamSearch] = useState('');
+  const [tournamentName, setTournamentName] = useState('');
   const [tournamentPoints, setTournamentPoints] = useState({ champion_points: 45, runner_up_points: 35, third_place_points: 25 });
   const [statusModal, setStatusModal] = useState({ visible: false, type: 'success', title: '', message: '' });
 
@@ -93,6 +167,7 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
       const t = tRes.data.data;
 
       setLocked(t.special_predictions_locked);
+      setTournamentName(t.name || 'Torneo');
       setTournamentPoints({
         champion_points: t.champion_points ?? 45,
         runner_up_points: t.runner_up_points ?? 35,
@@ -108,12 +183,10 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
         });
       }
 
-      // Obtener equipos desde los grupos
-      const groupsRes = await tournamentService.getGroups(tournamentId);
-      const groupsData = groupsRes.data.data || {};
-      const allTeams = Object.values(groupsData).flat();
-      const unique = allTeams.filter((t, i, arr) => arr.findIndex(x => x.id === t.id) === i);
-      setTeams(unique.sort((a, b) => a.name.localeCompare(b.name)));
+      // Equipos que participan en los partidos del torneo
+      const teamsRes = await tournamentService.getTeams(tournamentId);
+      const tournamentTeams = teamsRes.data?.data || [];
+      setTeams(tournamentTeams);
     } catch (err) {
       console.error('Error cargando menciones:', err);
     } finally {
@@ -170,17 +243,18 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
   if (loading) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator size="large" color={C.accent} />
       </View>
     );
   }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+          <Ionicons name="arrow-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Menciones Especiales</Text>
         <View style={{ width: 40 }} />
@@ -189,13 +263,18 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
       <ScrollView contentContainerStyle={{ padding: 16 }}>
         {/* Info */}
         <View style={styles.infoCard}>
-          <Text style={styles.infoTitle}>⭐ Predice el podio del Mundial</Text>
+          <Text style={styles.infoTitle}> Predice el podio — {tournamentName}</Text>
           <Text style={styles.infoText}>
-            Elige quién será el Campeón, Subcampeón y Tercer Puesto. Gana puntos bonus al finalizar el torneo.
+            Elige Campeón, Subcampeón y Tercer Puesto entre los equipos que juegan en este torneo. Gana puntos bonus al finalizar.
           </Text>
+          {teams.length > 0 ? (
+            <Text style={styles.infoTeamsCount}>{teams.length} equipos disponibles</Text>
+          ) : (
+            <Text style={styles.infoTeamsWarning}>Aún no hay equipos cargados en los partidos del torneo.</Text>
+          )}
           {locked && (
             <View style={styles.lockedBanner}>
-              <Ionicons name="lock-closed" size={16} color={COLORS.warning} />
+              <Ionicons name="lock-closed" size={16} color={C.warning} />
               <Text style={styles.lockedText}> Menciones bloqueadas — el torneo ya inició</Text>
             </View>
           )}
@@ -219,21 +298,37 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
 
               <TouchableOpacity
                 style={[styles.selector, selected && styles.selectorSelected, locked && styles.selectorLocked]}
-                onPress={() => !locked && setPickerFor(pos.key)}
+                onPress={() => {
+                  if (teams.length === 0) {
+                    setStatusModal({
+                      visible: true,
+                      type: 'warning',
+                      title: 'Sin equipos',
+                      message: 'Este torneo aún no tiene equipos en sus partidos. El administrador debe crear partidos con equipos en la liga del torneo.',
+                    });
+                    return;
+                  }
+                  setTeamSearch('');
+                  setPickerFor(pos.key);
+                }}
                 disabled={locked}
               >
                 {selected ? (
                   <View style={styles.selectedTeam}>
-                    <Text style={styles.selectedFlag}>{getFlagEmoji(selected.country)}</Text>
+                    {getTeamLogo(selected) ? (
+                      <Image source={{ uri: getTeamLogo(selected) }} style={styles.selectedLogo} resizeMode="contain" />
+                    ) : (
+                      <Text style={styles.selectedFlag}>{getFlagEmoji(selected.country)}</Text>
+                    )}
                     <View style={{ flex: 1 }}>
                       <Text style={styles.selectedName}>{selected.name}</Text>
                       <Text style={styles.selectedShort}>{selected.short_name}</Text>
                     </View>
-                    {!locked && <Ionicons name="chevron-forward" size={18} color={COLORS.textSecondary} />}
+                    {!locked && <Ionicons name="chevron-forward" size={18} color={C.textSecondary} />}
                   </View>
                 ) : (
                   <View style={styles.placeholderRow}>
-                    <Text style={[styles.placeholderText, locked && { color: COLORS.border }]}>
+                    <Text style={[styles.placeholderText, locked && { color: C.border }]}>
                       {locked ? 'Sin selección' : 'Toca para elegir equipo'}
                     </Text>
                   </View>
@@ -251,7 +346,7 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
             disabled={saving}
           >
             {saving ? (
-              <ActivityIndicator color={COLORS.backgroundDark} />
+              <ActivityIndicator color="#ffffff" />
             ) : (
               <Text style={styles.saveBtnText}>
                 {prediction ? 'Actualizar Menciones' : 'Guardar Menciones'}
@@ -266,19 +361,19 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
             <Text style={styles.resultsTitle}>Puntos obtenidos</Text>
             <View style={styles.resultsRow}>
               <Text style={styles.resultsLabel}>Campeón</Text>
-              <Text style={[styles.resultsPoints, { color: prediction.champion_points_earned > 0 ? COLORS.primary : COLORS.error }]}>
+              <Text style={[styles.resultsPoints, { color: prediction.champion_points_earned > 0 ? C.primary : C.error }]}>
                 {prediction.champion_points_earned} pts
               </Text>
             </View>
             <View style={styles.resultsRow}>
               <Text style={styles.resultsLabel}>Subcampeón</Text>
-              <Text style={[styles.resultsPoints, { color: prediction.runner_up_points_earned > 0 ? COLORS.primary : COLORS.error }]}>
+              <Text style={[styles.resultsPoints, { color: prediction.runner_up_points_earned > 0 ? C.primary : C.error }]}>
                 {prediction.runner_up_points_earned} pts
               </Text>
             </View>
             <View style={styles.resultsRow}>
               <Text style={styles.resultsLabel}>Tercer Puesto</Text>
-              <Text style={[styles.resultsPoints, { color: prediction.third_place_points_earned > 0 ? COLORS.primary : COLORS.error }]}>
+              <Text style={[styles.resultsPoints, { color: prediction.third_place_points_earned > 0 ? C.primary : C.error }]}>
                 {prediction.third_place_points_earned} pts
               </Text>
             </View>
@@ -293,11 +388,19 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
         visible={!!pickerFor}
         teams={pickerFor ? getAvailableTeams(pickerFor) : []}
         selectedId={pickerFor ? selections[pickerFor]?.id : null}
+        pk={pk}
+        C={C}
+        searchQuery={teamSearch}
+        onSearchChange={setTeamSearch}
         onSelect={(team) => {
           setSelections(prev => ({ ...prev, [pickerFor]: team }));
           setPickerFor(null);
+          setTeamSearch('');
         }}
-        onClose={() => setPickerFor(null)}
+        onClose={() => {
+          setPickerFor(null);
+          setTeamSearch('');
+        }}
       />
 
       {/* Feedback modal — mismo diseño que el panel admin */}
@@ -314,50 +417,73 @@ export default function TournamentSpecialsScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.backgroundDark },
-  center: { flex: 1, backgroundColor: COLORS.backgroundDark, justifyContent: 'center', alignItems: 'center' },
+const createStyles = (C) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.background },
+  center: { flex: 1, backgroundColor: C.background, justifyContent: 'center', alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.white },
-  infoCard: { backgroundColor: COLORS.cardDark, borderRadius: 16, padding: 16, marginBottom: 16 },
-  infoTitle: { color: COLORS.white, fontWeight: 'bold', fontSize: 16, marginBottom: 8 },
-  infoText: { color: COLORS.textSecondary, fontSize: 13, lineHeight: 20 },
-  lockedBanner: { flexDirection: 'row', alignItems: 'center', marginTop: 12, backgroundColor: COLORS.warning + '22', padding: 10, borderRadius: 10 },
-  lockedText: { color: COLORS.warning, fontSize: 13, fontWeight: '500' },
-  posCard: { backgroundColor: COLORS.cardDark, borderRadius: 16, padding: 16, marginBottom: 12, overflow: 'hidden' },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: C.text },
+  infoCard: { backgroundColor: C.cardDark, borderRadius: 16, padding: 16, marginBottom: 16 },
+  infoTitle: { color: C.text, fontWeight: 'bold', fontSize: 16, marginBottom: 8 },
+  infoText: { color: C.textSecondary, fontSize: 13, lineHeight: 20 },
+  infoTeamsCount: { color: C.primary, fontSize: 12, fontWeight: '600', marginTop: 10 },
+  infoTeamsWarning: { color: C.warning, fontSize: 12, fontWeight: '600', marginTop: 10 },
+  lockedBanner: { flexDirection: 'row', alignItems: 'center', marginTop: 12, backgroundColor: C.warning + '22', padding: 10, borderRadius: 10 },
+  lockedText: { color: C.warning, fontSize: 13, fontWeight: '500' },
+  posCard: { backgroundColor: C.cardDark, borderRadius: 16, padding: 16, marginBottom: 12, overflow: 'hidden' },
   posHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   posLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   posIcon: { fontSize: 18 },
   posLabel: { fontSize: 15, fontWeight: 'bold' },
   posPtsBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 12 },
   posPts: { fontSize: 12, fontWeight: '700' },
-  selector: { borderWidth: 1.5, borderColor: COLORS.border, borderRadius: 12, padding: 14, borderStyle: 'dashed' },
-  selectorSelected: { borderStyle: 'solid', borderColor: COLORS.primary + '66', backgroundColor: COLORS.primary + '11' },
-  selectorLocked: { borderColor: COLORS.border, opacity: 0.7 },
+  selector: { borderWidth: 1.5, borderColor: C.border, borderRadius: 12, padding: 14, borderStyle: 'dashed' },
+  selectorSelected: { borderStyle: 'solid', borderColor: C.primary + '66', backgroundColor: C.primary + '11' },
+  selectorLocked: { borderColor: C.border, opacity: 0.7 },
   selectedTeam: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   selectedFlag: { fontSize: 32 },
-  selectedName: { color: COLORS.white, fontWeight: '600', fontSize: 15 },
-  selectedShort: { color: COLORS.textSecondary, fontSize: 12 },
+  selectedLogo: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.surfaceMuted },
+  selectedName: { color: C.text, fontWeight: '600', fontSize: 15 },
+  selectedShort: { color: C.textSecondary, fontSize: 12 },
   placeholderRow: { flexDirection: 'row', alignItems: 'center', gap: 10, justifyContent: 'center', paddingVertical: 6 },
-  placeholderText: { color: COLORS.primary, fontSize: 13 },
-  saveBtn: { backgroundColor: COLORS.primary, padding: 16, borderRadius: 14, alignItems: 'center', marginTop: 8 },
-  saveBtnText: { color: COLORS.backgroundDark, fontWeight: 'bold', fontSize: 16 },
-  resultsCard: { backgroundColor: COLORS.cardDark, borderRadius: 16, padding: 16, marginTop: 16 },
-  resultsTitle: { color: COLORS.white, fontWeight: 'bold', fontSize: 15, marginBottom: 12 },
-  resultsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  resultsLabel: { color: COLORS.textSecondary, fontSize: 14 },
+  placeholderText: { color: C.primary, fontSize: 13 },
+  saveBtn: { backgroundColor: C.primary, padding: 16, borderRadius: 14, alignItems: 'center', marginTop: 8 },
+  saveBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 16 },
+  resultsCard: { backgroundColor: C.cardDark, borderRadius: 16, padding: 16, marginTop: 16 },
+  resultsTitle: { color: C.text, fontWeight: 'bold', fontSize: 15, marginBottom: 12 },
+  resultsRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: C.border },
+  resultsLabel: { color: C.textSecondary, fontSize: 14 },
   resultsPoints: { fontSize: 15, fontWeight: 'bold' },
 });
 
-const pk = StyleSheet.create({
+const createPk = (C) => StyleSheet.create({
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'flex-end' },
-  card: { backgroundColor: '#0f1e18', borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '82%', borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: COLORS.primary + '28' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  title: { color: COLORS.white, fontSize: 17, fontWeight: 'bold' },
-  teamItem: { flex: 1, backgroundColor: COLORS.cardDark, borderRadius: 12, padding: 12, alignItems: 'center', minHeight: 90, justifyContent: 'center', borderWidth: 1.5, borderColor: COLORS.border },
-  teamItemSelected: { borderColor: COLORS.primary, backgroundColor: COLORS.primary + '18' },
+  card: { backgroundColor: C.cardDark, borderTopLeftRadius: 24, borderTopRightRadius: 24, maxHeight: '82%', borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, borderColor: C.primary + '28' },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 18, borderBottomWidth: 1, borderBottomColor: C.border },
+  title: { color: C.text, fontSize: 17, fontWeight: 'bold' },
+  subtitle: { color: C.textSecondary, fontSize: 12, marginTop: 2 },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.surfaceMuted,
+  },
+  searchInput: { flex: 1, color: C.text, fontSize: 14, padding: 0 },
+  emptyPicker: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
+  emptyPickerTitle: { color: C.text, fontSize: 15, fontWeight: '700', marginTop: 12 },
+  emptyPickerText: { color: C.textSecondary, fontSize: 13, textAlign: 'center', marginTop: 6, lineHeight: 18 },
+  teamItem: { flex: 1, backgroundColor: C.cardDark, borderRadius: 12, padding: 12, alignItems: 'center', minHeight: 96, justifyContent: 'center', borderWidth: 1.5, borderColor: C.border },
+  teamItemSelected: { borderColor: C.primary, backgroundColor: C.primary + '18' },
   teamFlag: { fontSize: 28, marginBottom: 6 },
-  teamName: { color: COLORS.textSecondary, fontSize: 12, textAlign: 'center' },
-  teamNameSelected: { color: COLORS.white, fontWeight: '600' },
+  teamLogo: { width: 40, height: 40, marginBottom: 6, borderRadius: 20, backgroundColor: C.surfaceMuted },
+  teamName: { color: C.textSecondary, fontSize: 12, textAlign: 'center' },
+  teamShort: { color: C.textHint, fontSize: 10, marginTop: 2 },
+  teamNameSelected: { color: C.text, fontWeight: '600' },
 });

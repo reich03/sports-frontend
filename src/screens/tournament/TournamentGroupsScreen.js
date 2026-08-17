@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Animated
+  ActivityIndicator, RefreshControl, Animated, StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../../constants/theme';
 import tournamentService from '../../services/tournament.service';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 const GROUPS = ['A','B','C','D','E','F','G','H','I','J','K','L'];
 
@@ -31,6 +32,10 @@ const getFlagEmoji = (country) => {
 export default function TournamentGroupsScreen({ navigation, route }) {
   const { tournamentId } = route.params;
   const insets = useSafeAreaInsets();
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
+
   const [groups, setGroups] = useState({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -61,10 +66,11 @@ export default function TournamentGroupsScreen({ navigation, route }) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+          <Ionicons name="arrow-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Grupos del Mundial</Text>
         <View style={{ width: 40 }} />
@@ -72,7 +78,7 @@ export default function TournamentGroupsScreen({ navigation, route }) {
 
       {/* Info banner */}
       <View style={styles.infoBanner}>
-        <Ionicons name="information-circle" size={16} color={COLORS.info} />
+        <Ionicons name="information-circle" size={16} color={C.info} />
         <Text style={styles.infoText}>Los grupos son solo informativos — no se predicen posiciones</Text>
       </View>
 
@@ -93,11 +99,11 @@ export default function TournamentGroupsScreen({ navigation, route }) {
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
+          <ActivityIndicator size="large" color={C.accent} />
         </View>
       ) : (
         <ScrollView
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}
           contentContainerStyle={{ padding: 16 }}
         >
           {/* Grupo card */}
@@ -123,7 +129,7 @@ export default function TournamentGroupsScreen({ navigation, route }) {
                     <Text style={styles.teamName}>{team.name}</Text>
                     <Text style={styles.teamShort}>{team.short_name}</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color={COLORS.border} />
+                  <Ionicons name="chevron-forward" size={16} color={C.border} />
                 </TouchableOpacity>
               ))
             )}
@@ -138,7 +144,7 @@ export default function TournamentGroupsScreen({ navigation, route }) {
                 style={[styles.miniGroup, selectedGroup === g && styles.miniGroupActive]}
                 onPress={() => setSelectedGroup(g)}
               >
-                <Text style={[styles.miniGroupTitle, selectedGroup === g && { color: COLORS.primary }]}>
+                <Text style={[styles.miniGroupTitle, selectedGroup === g && { color: C.primary }]}>
                   Grupo {g}
                 </Text>
                 {(groups[g] || []).map(team => (
@@ -166,38 +172,38 @@ export default function TournamentGroupsScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.backgroundDark },
+const createStyles = (C) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.background },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.white },
-  infoBanner: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, backgroundColor: COLORS.info + '22', padding: 10, borderRadius: 10, marginBottom: 8, gap: 8 },
-  infoText: { flex: 1, color: COLORS.info, fontSize: 12 },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: C.text },
+  infoBanner: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, backgroundColor: C.info + '22', padding: 10, borderRadius: 10, marginBottom: 8, gap: 8 },
+  infoText: { flex: 1, color: C.info, fontSize: 12 },
   groupTabs: { paddingHorizontal: 12, paddingBottom: 12, gap: 8 },
-  groupTab: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.cardDark, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: COLORS.border },
-  groupTabActive: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  groupTabText: { color: COLORS.textSecondary, fontWeight: 'bold', fontSize: 15 },
-  groupTabTextActive: { color: COLORS.backgroundDark },
-  groupCard: { backgroundColor: COLORS.cardDark, borderRadius: 16, padding: 16, marginBottom: 24 },
+  groupTab: { width: 44, height: 44, borderRadius: 22, backgroundColor: C.cardDark, justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: C.border },
+  groupTabActive: { backgroundColor: C.accent, borderColor: C.accent },
+  groupTabText: { color: C.textSecondary, fontWeight: 'bold', fontSize: 15 },
+  groupTabTextActive: { color: C.onAccent },
+  groupCard: { backgroundColor: C.cardDark, borderRadius: 16, padding: 16, marginBottom: 24 },
   groupCardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
-  groupCardTitle: { color: COLORS.white, fontSize: 20, fontWeight: 'bold' },
-  groupCardSub: { color: COLORS.textSecondary, fontSize: 13 },
+  groupCardTitle: { color: C.text, fontSize: 20, fontWeight: 'bold' },
+  groupCardSub: { color: C.textSecondary, fontSize: 13 },
   teamRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  teamRowBorder: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  teamPos: { color: COLORS.textSecondary, width: 24, textAlign: 'center', fontWeight: 'bold' },
+  teamRowBorder: { borderBottomWidth: 1, borderBottomColor: C.border },
+  teamPos: { color: C.textSecondary, width: 24, textAlign: 'center', fontWeight: 'bold' },
   teamFlag: { fontSize: 28, marginHorizontal: 12 },
   teamInfo: { flex: 1 },
-  teamName: { color: COLORS.white, fontWeight: '600', fontSize: 15 },
-  teamShort: { color: COLORS.textSecondary, fontSize: 12, marginTop: 1 },
-  emptyText: { color: COLORS.textSecondary, textAlign: 'center', padding: 20 },
-  sectionTitle: { color: COLORS.textSecondary, fontSize: 12, letterSpacing: 1, marginBottom: 12 },
+  teamName: { color: C.text, fontWeight: '600', fontSize: 15 },
+  teamShort: { color: C.textSecondary, fontSize: 12, marginTop: 1 },
+  emptyText: { color: C.textSecondary, textAlign: 'center', padding: 20 },
+  sectionTitle: { color: C.textSecondary, fontSize: 12, letterSpacing: 1, marginBottom: 12 },
   allGroupsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  miniGroup: { width: '47%', backgroundColor: COLORS.cardDark, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: COLORS.border },
-  miniGroupActive: { borderColor: COLORS.primary },
-  miniGroupTitle: { color: COLORS.white, fontWeight: 'bold', fontSize: 13, marginBottom: 8 },
+  miniGroup: { width: '47%', backgroundColor: C.cardDark, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: C.border },
+  miniGroupActive: { borderColor: C.primary },
+  miniGroupTitle: { color: C.text, fontWeight: 'bold', fontSize: 13, marginBottom: 8 },
   miniTeamRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 6 },
   miniFlag: { fontSize: 16 },
-  miniName: { color: COLORS.textSecondary, fontSize: 11, flex: 1 },
-  miniEmpty: { color: COLORS.border, fontSize: 11 },
+  miniName: { color: C.textSecondary, fontSize: 11, flex: 1 },
+  miniEmpty: { color: C.border, fontSize: 11 },
 });

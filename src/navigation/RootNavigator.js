@@ -6,6 +6,7 @@ import { View, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { COLORS } from '../constants/theme';
 import SplashScreen from '../components/SplashScreen';
 
@@ -27,7 +28,9 @@ import GroupsScreen from '../screens/groups/GroupsScreen';
 import ProfileScreen from '../screens/profile/ProfileScreen';
 
 // Tournament (Mundial) screens
+import TournamentListScreen from '../screens/tournament/TournamentListScreen';
 import TournamentHomeScreen from '../screens/tournament/TournamentHomeScreen';
+import TournamentInfoScreen from '../screens/tournament/TournamentInfoScreen';
 import TournamentMatchesScreen from '../screens/tournament/TournamentMatchesScreen';
 import TournamentSpecialsScreen from '../screens/tournament/TournamentSpecialsScreen';
 import TournamentLeaderboardScreen from '../screens/tournament/TournamentLeaderboardScreen';
@@ -42,19 +45,30 @@ import TeamManagement from '../screens/admin/TeamManagement';
 import MatchManagement from '../screens/admin/MatchManagement';
 import SportManagement from '../screens/admin/SportManagement';
 import UserManagement from '../screens/admin/UserManagement';
+import TournamentParticipantsManagement from '../screens/admin/TournamentParticipantsManagement';
+import TournamentManagement from '../screens/admin/TournamentManagement';
 import RoundManagement from '../screens/admin/RoundManagement';
 import ScoringRulesManagement from '../screens/admin/ScoringRulesManagement';
+import F1DriverManagement from '../screens/admin/F1DriverManagement';
+import F1EventManagement from '../screens/admin/F1EventManagement';
+import F1TeamManagement from '../screens/admin/F1TeamManagement';
+
+// F1 user screens
+import F1EventsListScreen from '../screens/f1/F1EventsListScreen';
+import F1PredictionScreen from '../screens/f1/F1PredictionScreen';
+import F1ResultsScreen from '../screens/f1/F1ResultsScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
 
 // Auth Stack
 const AuthStack = () => {
+  const { palette } = useTheme();
   return (
     <Stack.Navigator
       screenOptions={{
         headerShown: false,
-        cardStyle: { backgroundColor: COLORS.backgroundDark },
+        cardStyle: { backgroundColor: palette.background },
       }}
     >
       <Stack.Screen name="Login" component={LoginScreen} />
@@ -69,19 +83,20 @@ const AuthStack = () => {
 // Main Tab Navigator
 const MainTabs = () => {
   const insets = useSafeAreaInsets();
+  const { palette } = useTheme();
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: COLORS.cardDark,
-          borderTopColor: COLORS.border,
+          backgroundColor: palette.card,
+          borderTopColor: palette.border,
           height: 60 + insets.bottom,
           paddingBottom: insets.bottom + 4,
           paddingTop: 4,
         },
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.textSecondary,
+        tabBarActiveTintColor: palette.primary,
+        tabBarInactiveTintColor: palette.textMuted,
       }}
     >
       <Tab.Screen 
@@ -140,19 +155,20 @@ const MainTabs = () => {
 
 // Main Stack (wraps tabs and adds additional screens)
 const MainStack = () => {
+  const { palette } = useTheme();
   return (
     <Stack.Navigator
       screenOptions={{
         headerStyle: {
-          backgroundColor: COLORS.cardDark,
-          borderBottomColor: COLORS.border,
+          backgroundColor: palette.card,
+          borderBottomColor: palette.border,
         },
         headerTintColor: COLORS.primary,
         headerTitleStyle: {
-          color: COLORS.white,
+          color: palette.text,
           fontWeight: 'bold',
         },
-        cardStyle: { backgroundColor: COLORS.backgroundDark },
+        cardStyle: { backgroundColor: palette.background },
       }}
     >
       <Stack.Screen 
@@ -192,10 +208,20 @@ const MainStack = () => {
         }}
       />
       
-      {/* ─── Mundial 2026 Screens ─── */}
+      {/* ─── Torneos / Pollas ─── */}
+      <Stack.Screen
+        name="TournamentList"
+        component={TournamentListScreen}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen
         name="TournamentHome"
         component={TournamentHomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="TournamentInfo"
+        component={TournamentInfoScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen
@@ -270,6 +296,26 @@ const MainStack = () => {
           headerShown: false,
         }}
       />
+      <Stack.Screen
+        name="F1TeamManagement"
+        component={F1TeamManagement}
+        options={{ title: 'Equipos F1', headerShown: false }}
+      />
+      <Stack.Screen
+        name="F1DriverManagement"
+        component={F1DriverManagement}
+        options={{ title: 'Pilotos F1', headerShown: false }}
+      />
+      <Stack.Screen
+        name="F1EventManagement"
+        component={F1EventManagement}
+        options={{ title: 'Eventos F1', headerShown: false }}
+      />
+
+      {/* F1 user screens */}
+      <Stack.Screen name="F1EventsList" component={F1EventsListScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="F1Prediction" component={F1PredictionScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="F1Results" component={F1ResultsScreen} options={{ headerShown: false }} />
       <Stack.Screen 
         name="SportManagement" 
         component={SportManagement}
@@ -283,6 +329,22 @@ const MainStack = () => {
         component={UserManagement}
         options={{ 
           title: 'User Management',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="TournamentManagement"
+        component={TournamentManagement}
+        options={{
+          title: 'Gestión de Torneos',
+          headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="TournamentParticipants"
+        component={TournamentParticipantsManagement}
+        options={{
+          title: 'Pollas Mundial',
           headerShown: false,
         }}
       />
@@ -301,13 +363,14 @@ const MainStack = () => {
 // Root Navigator
 const RootNavigator = () => {
   const { isAuthenticated, loading } = useAuth();
+  const { navigationTheme } = useTheme();
 
   if (loading) {
     return <SplashScreen />;
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer theme={navigationTheme}>
       {isAuthenticated ? <MainStack /> : <AuthStack />}
     </NavigationContainer>
   );

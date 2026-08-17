@@ -10,6 +10,7 @@ import {
   Modal,
   Image,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -22,6 +23,8 @@ import { useAuth } from '../../context/AuthContext';
 import CONFIG, { BASE_URL } from '../../constants/config';
 
 const MatchManagement = ({ navigation, route }) => {
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const dialogWidth = Math.min(screenWidth - 32, 420);
   const { token } = useAuth();
   const [matches, setMatches] = useState([]);
   const [teams, setTeams] = useState([]);
@@ -82,7 +85,7 @@ const MatchManagement = ({ navigation, route }) => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [route?.params?.roundId]);
 
   // Handle navigation params (from RoundManagement)
   useEffect(() => {
@@ -116,8 +119,12 @@ const MatchManagement = ({ navigation, route }) => {
   const fetchData = async () => {
     setLoading(true);
     try {
+      const matchParams = route?.params?.roundId
+        ? { round_id: route.params.roundId, limit: 100 }
+        : { limit: 100 };
+
       const [matchesData, teamsData, leaguesData, roundsData] = await Promise.all([
-        matchService.getMatches(),
+        matchService.getMatches(matchParams),
         teamService.getAllTeams(),
         leagueService.getAllLeagues(),
         roundService.getAllRounds(),
@@ -148,8 +155,47 @@ const MatchManagement = ({ navigation, route }) => {
     return selectedLeague?.sport_id || null;
   };
 
-  // Filtrar equipos por el deporte de la liga seleccionada
+  // Equipos filtrados por liga (N:M team_leagues) con fallback a deporte.
+  // Se carga bajo demanda cuando cambia la liga seleccionada.
+  const [leagueTeams, setLeagueTeams] = useState([]);
+  const [leagueTeamsFallback, setLeagueTeamsFallback] = useState(false);
+  const [loadingLeagueTeams, setLoadingLeagueTeams] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const fetchLeagueTeams = async () => {
+      if (!formData.league_id) {
+        setLeagueTeams([]);
+        setLeagueTeamsFallback(false);
+        return;
+      }
+      setLoadingLeagueTeams(true);
+      try {
+        const res = await teamService.getTeamsByLeague(formData.league_id);
+        if (cancelled) return;
+        setLeagueTeams(res.data?.teams || []);
+        setLeagueTeamsFallback(!!res.data?.fallback);
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Error cargando equipos de la liga:', err);
+          setLeagueTeams([]);
+          setLeagueTeamsFallback(false);
+        }
+      } finally {
+        if (!cancelled) setLoadingLeagueTeams(false);
+      }
+    };
+    fetchLeagueTeams();
+    return () => { cancelled = true; };
+  }, [formData.league_id]);
+
+  // Devuelve los equipos disponibles para el partido según la liga seleccionada.
+  // - Sin liga: todos los equipos (comportamiento previo).
+  // - Con liga: primero intenta los asociados (endpoint); si el endpoint devolvió
+  //   fallback o falla, se filtra por deporte como respaldo.
   const getFilteredTeams = () => {
+    if (!formData.league_id) return teams;
+    if (leagueTeams.length > 0) return leagueTeams;
     const sportId = getSelectedLeagueSportId();
     if (!sportId) return teams;
     return teams.filter(team => team.sport_id === sportId);
@@ -249,6 +295,7 @@ const MatchManagement = ({ navigation, route }) => {
       const data = await matchService.updateMatch(selectedMatch.id, {
         ...formData,
         sport_id: sportId,
+        round_id: formData.round_id || null,
         match_date: matchDateTime
       });
 
@@ -832,7 +879,7 @@ const MatchManagement = ({ navigation, route }) => {
                                   </TouchableOpacity>
                                   {match.status !== 'finished' && (
                                     <TouchableOpacity 
-                                      style={[styles.actionButton, styles.closeButton]}
+                                      style={[styles.actionButton, styles.closeMatchActionBtn]}
                                       onPress={() => openCloseMatchModal(match)}
                                     >
                                       <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
@@ -958,7 +1005,7 @@ const MatchManagement = ({ navigation, route }) => {
                           </TouchableOpacity>
                           {match.status !== 'finished' && (
                             <TouchableOpacity 
-                              style={[styles.actionButton, styles.closeButton]}
+                              style={[styles.actionButton, styles.closeMatchActionBtn]}
                               onPress={() => openCloseMatchModal(match)}
                             >
                               <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
@@ -1008,10 +1055,11 @@ const MatchManagement = ({ navigation, route }) => {
         visible={showCreateModal}
         animationType="slide"
         transparent={true}
+        statusBarTranslucent
         onRequestClose={() => setShowCreateModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalSheet, { maxHeight: screenHeight * 0.92 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>NUEVO PARTIDO</Text>
               <TouchableOpacity onPress={() => setShowCreateModal(false)}>
@@ -1019,7 +1067,12 @@ const MatchManagement = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalBody}>
+            <ScrollView
+              style={styles.modalBodyScroll}
+              contentContainerStyle={styles.modalBody}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
               <View style={styles.formSection}>
                 <Text style={styles.sectionTitle}>INFORMACIÓN DEL PARTIDO</Text>
 
@@ -1192,28 +1245,28 @@ const MatchManagement = ({ navigation, route }) => {
                 )}
 
                 <View style={styles.formRow}>
-                  <View style={styles.formGroup}>
+                  <View style={styles.formGroupHalf}>
                     <Text style={styles.formLabel}>Fecha *</Text>
                     <TouchableOpacity
                       style={styles.dateTimeButton}
                       onPress={openDatePicker}
                     >
                       <Ionicons name="calendar-outline" size={18} color={COLORS.primary} />
-                      <Text style={styles.dateTimeButtonText}>
-                        {formData.match_date || 'Seleccionar fecha'}
+                      <Text style={styles.dateTimeButtonText} numberOfLines={1}>
+                        {formData.match_date || 'Seleccionar'}
                       </Text>
                     </TouchableOpacity>
                   </View>
 
-                  <View style={styles.formGroup}>
+                  <View style={styles.formGroupHalf}>
                     <Text style={styles.formLabel}>Hora *</Text>
                     <TouchableOpacity
                       style={styles.dateTimeButton}
                       onPress={openTimePicker}
                     >
                       <Ionicons name="time-outline" size={18} color={COLORS.primary} />
-                      <Text style={styles.dateTimeButtonText}>
-                        {formData.match_time || 'Seleccionar hora'}
+                      <Text style={styles.dateTimeButtonText} numberOfLines={1}>
+                        {formData.match_time || 'Seleccionar'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1254,10 +1307,11 @@ const MatchManagement = ({ navigation, route }) => {
         visible={showEditModal}
         animationType="slide"
         transparent={true}
+        statusBarTranslucent
         onRequestClose={() => setShowEditModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalSheet, { maxHeight: screenHeight * 0.92 }]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>EDITAR PARTIDO</Text>
               <TouchableOpacity onPress={() => setShowEditModal(false)}>
@@ -1265,7 +1319,12 @@ const MatchManagement = ({ navigation, route }) => {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalBody}>
+            <ScrollView
+              style={styles.modalBodyScroll}
+              contentContainerStyle={styles.modalBody}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
               <View style={styles.formSection}>
                 <Text style={styles.sectionTitle}>INFORMACIÓN DEL PARTIDO</Text>
 
@@ -1438,28 +1497,28 @@ const MatchManagement = ({ navigation, route }) => {
                 )}
 
                 <View style={styles.formRow}>
-                  <View style={styles.formGroup}>
+                  <View style={styles.formGroupHalf}>
                     <Text style={styles.formLabel}>Fecha *</Text>
                     <TouchableOpacity
                       style={styles.dateTimeButton}
                       onPress={openDatePicker}
                     >
                       <Ionicons name="calendar-outline" size={18} color={COLORS.primary} />
-                      <Text style={styles.dateTimeButtonText}>
-                        {formData.match_date || 'Seleccionar fecha'}
+                      <Text style={styles.dateTimeButtonText} numberOfLines={1}>
+                        {formData.match_date || 'Seleccionar'}
                       </Text>
                     </TouchableOpacity>
                   </View>
 
-                  <View style={styles.formGroup}>
+                  <View style={styles.formGroupHalf}>
                     <Text style={styles.formLabel}>Hora *</Text>
                     <TouchableOpacity
                       style={styles.dateTimeButton}
                       onPress={openTimePicker}
                     >
                       <Ionicons name="time-outline" size={18} color={COLORS.primary} />
-                      <Text style={styles.dateTimeButtonText}>
-                        {formData.match_time || 'Seleccionar hora'}
+                      <Text style={styles.dateTimeButtonText} numberOfLines={1}>
+                        {formData.match_time || 'Seleccionar'}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -1500,57 +1559,62 @@ const MatchManagement = ({ navigation, route }) => {
         visible={showDeleteModal}
         animationType="fade"
         transparent={true}
+        statusBarTranslucent
         onRequestClose={() => setShowDeleteModal(false)}
       >
-        <View style={styles.deleteOverlay}>
-          <View style={styles.deleteModal}>
-            <TouchableOpacity 
-              style={styles.closeButton}
-              onPress={() => setShowDeleteModal(false)}
-            >
-              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-
-            <View style={styles.deleteIconContainer}>
-              <Ionicons name="warning" size={40} color={COLORS.errorLight} />
+        <View style={styles.dialogOverlay}>
+          <View style={[styles.dialogCard, { width: dialogWidth }]}>
+            <View style={styles.dialogHeader}>
+              <View style={styles.dialogHeaderLeft}>
+                <View style={[styles.dialogIconWrap, { backgroundColor: `${COLORS.error}18` }]}>
+                  <Ionicons name="warning" size={26} color={COLORS.errorLight} />
+                </View>
+                <Text style={styles.dialogTitle}>Eliminar partido</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.dialogCloseBtn}
+                onPress={() => setShowDeleteModal(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+              </TouchableOpacity>
             </View>
 
-            <Text style={styles.deleteTitle}>¿Eliminar Partido?</Text>
-            <Text style={styles.deleteMessage}>
-              Esta acción no se puede deshacer. Todas las predicciones asociadas también serán eliminadas.
+            <Text style={styles.dialogMessage}>
+              Esta acción no se puede deshacer. Las predicciones asociadas también se eliminarán.
             </Text>
 
             {selectedMatch && (
-              <View style={styles.deleteMatchCard}>
-                <View style={styles.deleteMatchTeams}>
-                  <Text style={styles.deleteMatchTeam}>
+              <View style={styles.dialogMatchCard}>
+                <View style={styles.dialogMatchTeams}>
+                  <Text style={styles.dialogMatchTeam} numberOfLines={1}>
                     {selectedMatch.home_team?.short_name}
                   </Text>
-                  <Text style={styles.deleteMatchVs}>VS</Text>
-                  <Text style={styles.deleteMatchTeam}>
+                  <Text style={styles.dialogMatchVs}>VS</Text>
+                  <Text style={styles.dialogMatchTeam} numberOfLines={1}>
                     {selectedMatch.away_team?.short_name}
                   </Text>
                 </View>
-                <Text style={styles.deleteMatchDate}>
-                  {formatDate(selectedMatch.match_date)} • {formatTime(selectedMatch.match_date)}
+                <Text style={styles.dialogMatchDate}>
+                  {formatDate(selectedMatch.match_date)} · {formatTime(selectedMatch.match_date)}
                 </Text>
               </View>
             )}
 
-            <View style={styles.deleteActions}>
-              <TouchableOpacity 
-                style={styles.deleteCancelButton}
+            <View style={styles.dialogActions}>
+              <TouchableOpacity
+                style={styles.dialogBtnSecondary}
                 onPress={() => setShowDeleteModal(false)}
               >
-                <Text style={styles.deleteCancelText}>CANCELAR</Text>
+                <Text style={styles.dialogBtnSecondaryText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.deleteConfirmButton}
+              <TouchableOpacity
+                style={[styles.dialogBtnPrimary, { backgroundColor: COLORS.errorLight }]}
                 onPress={handleDeleteMatch}
                 disabled={loading}
               >
-                <Text style={styles.deleteConfirmText}>
-                  {loading ? 'ELIMINANDO...' : 'ELIMINAR'}
+                <Text style={styles.dialogBtnPrimaryText}>
+                  {loading ? 'Eliminando...' : 'Eliminar'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1568,7 +1632,7 @@ const MatchManagement = ({ navigation, route }) => {
         <View style={styles.teamInfoOverlay}>
           <View style={styles.teamInfoModal}>
             <TouchableOpacity 
-              style={styles.closeButton}
+              style={styles.teamInfoCloseBtn}
               onPress={closeTeamInfo}
             >
               <Ionicons name="close" size={24} color={COLORS.textSecondary} />
@@ -1625,46 +1689,51 @@ const MatchManagement = ({ navigation, route }) => {
         visible={showCloseMatchModal}
         animationType="fade"
         transparent={true}
+        statusBarTranslucent
         onRequestClose={() => setShowCloseMatchModal(false)}
       >
-        <View style={styles.deleteOverlay}>
-          <View style={styles.deleteModal}>
-            <TouchableOpacity 
-              style={styles.closeButton}
-              onPress={() => setShowCloseMatchModal(false)}
-            >
-              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-
-            <View style={styles.deleteIconContainer}>
-              <Ionicons name="checkmark-circle" size={40} color={COLORS.success} />
+        <View style={styles.dialogOverlay}>
+          <View style={[styles.dialogCard, { width: dialogWidth }]}>
+            <View style={styles.dialogHeader}>
+              <View style={styles.dialogHeaderLeft}>
+                <View style={[styles.dialogIconWrap, { backgroundColor: `${COLORS.success}18` }]}>
+                  <Ionicons name="checkmark-circle" size={26} color={COLORS.success} />
+                </View>
+                <Text style={styles.dialogTitle}>Cerrar partido</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.dialogCloseBtn}
+                onPress={() => setShowCloseMatchModal(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+              </TouchableOpacity>
             </View>
 
-            <Text style={styles.deleteTitle}>Cerrar Partido</Text>
-            <Text style={styles.deleteMessage}>
-              Ingresa el marcador final. Esto procesará automáticamente las predicciones de los usuarios.
+            <Text style={styles.dialogMessage}>
+              Ingresa el marcador final. Se procesarán las predicciones automáticamente.
             </Text>
 
             {selectedMatch && (
-              <View style={styles.deleteMatchCard}>
-                <View style={styles.deleteMatchTeams}>
-                  <Text style={styles.deleteMatchTeam}>
+              <View style={styles.dialogMatchCard}>
+                <View style={styles.dialogMatchTeams}>
+                  <Text style={styles.dialogMatchTeam} numberOfLines={1}>
                     {selectedMatch.home_team?.short_name}
                   </Text>
-                  <Text style={styles.deleteMatchVs}>VS</Text>
-                  <Text style={styles.deleteMatchTeam}>
+                  <Text style={styles.dialogMatchVs}>VS</Text>
+                  <Text style={styles.dialogMatchTeam} numberOfLines={1}>
                     {selectedMatch.away_team?.short_name}
                   </Text>
                 </View>
-                <Text style={styles.deleteMatchDate}>
-                  {formatDate(selectedMatch.match_date)} • {formatTime(selectedMatch.match_date)}
+                <Text style={styles.dialogMatchDate}>
+                  {formatDate(selectedMatch.match_date)} · {formatTime(selectedMatch.match_date)}
                 </Text>
               </View>
             )}
 
             <View style={styles.scoreInputRow}>
               <View style={styles.scoreInputGroup}>
-                <Text style={styles.scoreInputLabel}>
+                <Text style={styles.scoreInputLabel} numberOfLines={1}>
                   {selectedMatch?.home_team?.short_name || 'Local'}
                 </Text>
                 <TextInput
@@ -1677,10 +1746,10 @@ const MatchManagement = ({ navigation, route }) => {
                 />
               </View>
 
-              <Text style={styles.scoreSeparator}>-</Text>
+              <Text style={styles.scoreSeparator}>:</Text>
 
               <View style={styles.scoreInputGroup}>
-                <Text style={styles.scoreInputLabel}>
+                <Text style={styles.scoreInputLabel} numberOfLines={1}>
                   {selectedMatch?.away_team?.short_name || 'Visitante'}
                 </Text>
                 <TextInput
@@ -1694,20 +1763,20 @@ const MatchManagement = ({ navigation, route }) => {
               </View>
             </View>
 
-            <View style={styles.deleteActions}>
-              <TouchableOpacity 
-                style={styles.deleteCancelButton}
+            <View style={styles.dialogActions}>
+              <TouchableOpacity
+                style={styles.dialogBtnSecondary}
                 onPress={() => setShowCloseMatchModal(false)}
               >
-                <Text style={styles.deleteCancelText}>CANCELAR</Text>
+                <Text style={styles.dialogBtnSecondaryText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.deleteConfirmButton, { backgroundColor: COLORS.success }]}
+              <TouchableOpacity
+                style={[styles.dialogBtnPrimary, { backgroundColor: COLORS.success }]}
                 onPress={handleCloseMatch}
                 disabled={loading}
               >
-                <Text style={styles.deleteConfirmText}>
-                  {loading ? 'PROCESANDO...' : 'CERRAR PARTIDO'}
+                <Text style={styles.dialogBtnPrimaryText}>
+                  {loading ? 'Procesando...' : 'Cerrar partido'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1720,21 +1789,28 @@ const MatchManagement = ({ navigation, route }) => {
         visible={showPredictionsModal}
         animationType="slide"
         transparent={true}
+        statusBarTranslucent
         onRequestClose={() => setShowPredictionsModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, styles.predictionsModalContent]}>
+          <View style={[styles.modalSheet, styles.predictionsModalSheet, {
+            maxHeight: screenHeight * 0.92,
+            height: screenHeight * 0.92,
+          }]}>
             <View style={styles.predictionsModalHeader}>
               <View style={styles.predictionsHeaderTop}>
-                <View style={styles.predictionsIconContainer}>
-                  <Ionicons name="people" size={22} color={COLORS.primary} />
+                <View style={styles.predictionsHeaderLeft}>
+                  <View style={styles.predictionsIconContainer}>
+                    <Ionicons name="people" size={20} color={COLORS.primary} />
+                  </View>
+                  <Text style={styles.predictionsModalTitle}>Predicciones</Text>
                 </View>
-                <Text style={styles.predictionsModalTitle}>Predicciones</Text>
-                <TouchableOpacity 
+                <TouchableOpacity
                   onPress={() => setShowPredictionsModal(false)}
                   style={styles.predictionsCloseButton}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
-                  <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+                  <Ionicons name="close" size={22} color={COLORS.textSecondary} />
                 </TouchableOpacity>
               </View>
               {selectedMatch && (
@@ -2201,6 +2277,9 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
   },
+  closeMatchActionBtn: {
+    backgroundColor: `${COLORS.success}18`,
+  },
   fab: {
     position: 'absolute',
     bottom: 32,
@@ -2223,37 +2302,63 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
+    width: '100%',
     backgroundColor: 'rgba(10, 14, 20, 0.95)',
     justifyContent: 'flex-end',
+    alignItems: 'stretch',
+  },
+  modalSheet: {
+    width: '100%',
+    alignSelf: 'stretch',
+    backgroundColor: COLORS.cardBackground,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
   },
   modalContent: {
     backgroundColor: COLORS.cardBackground,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '90%',
+    width: '100%',
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   modalTitle: {
-    fontSize: 20,
+    flex: 1,
+    fontSize: 18,
     fontWeight: '700',
     color: '#f1f5f9',
+    letterSpacing: 0.5,
   },
   modalBody: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 24,
+  },
+  modalBodyScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
   },
   formSection: {
-    marginBottom: 24,
+    marginBottom: 8,
   },
   formGroup: {
     marginBottom: 16,
     gap: 8,
+  },
+  formGroupHalf: {
+    flex: 1,
+    marginBottom: 0,
+    gap: 8,
+    minWidth: 0,
   },
   formLabel: {
     fontSize: 13,
@@ -2274,9 +2379,8 @@ const styles = StyleSheet.create({
   formRow: {
     flexDirection: 'row',
     gap: 12,
-  },
-  formGroup: {
-    flex: 1,
+    alignItems: 'flex-start',
+    marginBottom: 16,
   },
   optionScroll: {
     marginHorizontal: -4,
@@ -2313,37 +2417,166 @@ const styles = StyleSheet.create({
   modalActions: {
     flexDirection: 'row',
     gap: 12,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 20,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.05)',
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 16,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(168, 171, 179, 0.25)',
+    backgroundColor: 'rgba(32, 38, 47, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     color: COLORS.textSecondary,
-    letterSpacing: 1.2,
   },
   saveButton: {
     flex: 1,
+    height: 48,
     borderRadius: 12,
     overflow: 'hidden',
   },
   saveButtonGradient: {
-    paddingVertical: 16,
+    flex: 1,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  saveButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.backgroundDark,
+    textAlign: 'center',
+  },
+  dialogOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(10, 14, 20, 0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  dialogCard: {
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  dialogHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  dialogHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  dialogIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  saveButtonText: {
-    fontSize: 13,
+  dialogTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.white,
+    flex: 1,
+  },
+  dialogCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  dialogMessage: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  dialogMatchCard: {
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    alignItems: 'center',
+  },
+  dialogMatchTeams: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    width: '100%',
+  },
+  dialogMatchTeam: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '700',
+    color: COLORS.white,
+    textAlign: 'center',
+  },
+  dialogMatchVs: {
+    fontSize: 11,
     fontWeight: '800',
-    color: COLORS.backgroundDark,
-    letterSpacing: 1.2,
+    color: COLORS.primary,
+    letterSpacing: 0.5,
+  },
+  dialogMatchDate: {
+    fontSize: 12,
+    color: COLORS.primary,
+    fontWeight: '600',
+    marginTop: 6,
+  },
+  dialogActions: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  dialogBtnSecondary: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(168, 171, 179, 0.25)',
+    backgroundColor: 'rgba(32, 38, 47, 0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogBtnSecondaryText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  dialogBtnPrimary: {
+    flex: 1,
+    height: 46,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogBtnPrimaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.white,
+    textAlign: 'center',
   },
   deleteOverlay: {
     flex: 1,
@@ -2359,15 +2592,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 32,
     position: 'relative',
-  },
-  closeButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   deleteIconContainer: {
     width: 80,
@@ -2468,6 +2692,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
+  teamInfoCloseBtn: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   teamInfoLogo: {
     width: 120,
     height: 120,
@@ -2530,10 +2765,12 @@ const styles = StyleSheet.create({
     borderColor: `${COLORS.primary}30`,
     borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    minHeight: 44,
+    paddingVertical: 12,
+    minHeight: 48,
+    width: '100%',
   },
   dateTimeButtonText: {
+    flex: 1,
     fontSize: 14,
     fontWeight: '500',
     color: COLORS.white,
@@ -2625,58 +2862,58 @@ const styles = StyleSheet.create({
     color: COLORS.success,
     letterSpacing: 1,
   },
-  closeButton: {
-    backgroundColor: `${COLORS.success}15`,
-  },
   scoreInputRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-end',
     justifyContent: 'center',
-    gap: 16,
-    marginVertical: 24,
+    gap: 12,
+    marginBottom: 8,
   },
   scoreInputGroup: {
     flex: 1,
     gap: 8,
+    minWidth: 0,
   },
   scoreInputLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: '600',
-    color: COLORS.white,
+    color: COLORS.textSecondary,
     textAlign: 'center',
   },
   scoreInput: {
-    backgroundColor: `${COLORS.primary}15`,
-    borderWidth: 2,
-    borderColor: `${COLORS.primary}30`,
+    backgroundColor: `${COLORS.primary}12`,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}35`,
     borderRadius: 12,
-    padding: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
     color: COLORS.white,
-    fontSize: 32,
-    fontWeight: '800',
-    textAlign: 'center',
-  },
-  scoreSeparator: {
     fontSize: 28,
     fontWeight: '800',
+    textAlign: 'center',
+    minHeight: 56,
+  },
+  scoreSeparator: {
+    fontSize: 24,
+    fontWeight: '800',
     color: COLORS.primary,
-    marginTop: 24,
+    paddingBottom: 14,
   },
   // Predictions Modal Styles
   predictionsButton: {
     backgroundColor: 'rgba(68, 128, 255, 0.09)',
   },
+  predictionsModalSheet: {
+    width: '100%',
+  },
   predictionsModalContent: {
-    width: '96%',
-    maxWidth: 900,
-    height: '92%',
-    display: 'flex',
-    flexDirection: 'column',
+    width: '100%',
+    flex: 1,
   },
   predictionsModalHeader: {
     backgroundColor: 'rgba(0, 230, 119, 0.03)',
-    borderBottomWidth: 2,
-    borderBottomColor: 'rgba(0, 230, 119, 0.1)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 230, 119, 0.12)',
   },
   predictionsHeaderTop: {
     flexDirection: 'row',
@@ -2684,6 +2921,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 14,
+  },
+  predictionsHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
   },
   predictionsIconContainer: {
     width: 36,
@@ -2702,11 +2946,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   predictionsModalTitle: {
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 18,
+    fontWeight: '700',
     color: COLORS.white,
-    flex: 1,
-    textAlign: 'center',
   },
   predictionsMatchInfo: {
     paddingHorizontal: 16,
@@ -2808,10 +3050,9 @@ const styles = StyleSheet.create({
   },
   predictionsModalBody: {
     flex: 1,
-    minHeight: 0,
   },
   scrollViewContent: {
-    flexGrow: 1,
+    paddingBottom: 24,
   },
   predictionsList: {
     padding: 12,

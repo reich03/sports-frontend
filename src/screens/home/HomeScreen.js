@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   Text,
@@ -14,24 +15,30 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { matchService, sportService, rankingService } from '../../services';
-import { COLORS, SIZES, SHADOWS } from '../../constants/theme';
+import { matchService, sportService, userService } from '../../services';
+import { SIZES, SHADOWS } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
 import { BASE_URL } from '../../constants/config';
+import { arePredictionsClosed } from '../../utils/predictions';
 
 const HomeScreen = ({ navigation }) => {
   const { user } = useAuth();
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
   const [matches, setMatches] = useState([]);
   const [sports, setSports] = useState([]);
   const [selectedSport, setSelectedSport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [userRanking, setUserRanking] = useState(null);
+  const [userStats, setUserStats] = useState(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Entry animations — each section slides up + fades in with stagger
   const sections = useRef(
-    Array.from({ length: 5 }, () => ({
+    Array.from({ length: 6 }, () => ({
       opacity: new Animated.Value(0),
       translateY: new Animated.Value(24),
     }))
@@ -56,14 +63,24 @@ const HomeScreen = ({ navigation }) => {
     });
   };
 
-  const sectionStyle = (i) => ({
-    opacity: sections[i].opacity,
-    transform: [{ translateY: sections[i].translateY }],
-  });
+  const sectionStyle = (i) => {
+    // Guarda de seguridad: si el índice cae fuera del array o es fraccional,
+    // usa el último slot disponible para no reventar la app.
+    const idx = Math.min(Math.max(0, Math.floor(i)), sections.length - 1);
+    const s = sections[idx];
+    return {
+      opacity: s.opacity,
+      transform: [{ translateY: s.translateY }],
+    };
+  };
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [selectedSport, user?.id])
+  );
 
   useEffect(() => {
-    loadData();
-
     // Pulse animation for live indicator
     Animated.loop(
       Animated.sequence([
@@ -71,34 +88,41 @@ const HomeScreen = ({ navigation }) => {
         Animated.timing(pulseAnim, { toValue: 1,   duration: 1000, useNativeDriver: true }),
       ])
     ).start();
-  }, [selectedSport]);
+  }, []);
 
   const loadData = async () => {
+    setLoading(true);
     try {
-      const [matchesRes, sportsRes, rankingRes] = await Promise.all([
-        matchService.getUpcomingMatches({ 
-          sport_id: selectedSport,
+      const [matchesRes, sportsRes] = await Promise.all([
+        matchService.getUpcomingMatches({
+          sport_id: selectedSport || undefined,
           limit: 20,
-          exclude_predicted: true
+          exclude_predicted: 'true',
         }),
         sportService.getAllSports(),
-        rankingService.getGlobalRanking({ limit: 100 })
       ]);
-      
+
       setMatches(matchesRes.data.matches || []);
       setSports(sportsRes.data.sports || []);
-      
-      // Encontrar la posición del usuario actual
-      const rankings = rankingRes.data.rankings || [];
-      const currentUserRank = rankings.find(rank => rank.User?.id === user?.id);
-      setUserRanking(currentUserRank);
     } catch (error) {
-      console.error('Error loading data:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-      runEntryAnimations();
+      console.error('Error loading home data:', error);
     }
+
+    if (user?.id) {
+      try {
+        const statsRes = await userService.getUserStats(user.id);
+        setUserStats(statsRes.data?.stats || null);
+      } catch (error) {
+        console.error('Error loading user stats:', error);
+        setUserStats(null);
+      }
+    } else {
+      setUserStats(null);
+    }
+
+    setLoading(false);
+    setRefreshing(false);
+    runEntryAnimations();
   };
 
   const onRefresh = () => {
@@ -134,6 +158,7 @@ const HomeScreen = ({ navigation }) => {
 
   const renderMatchCard = ({ item }) => {
     const isToday = new Date(item.match_date).toDateString() === new Date().toDateString();
+    const closed = arePredictionsClosed(item);
     
     return (
       <View style={styles.matchCard}>
@@ -196,19 +221,26 @@ const HomeScreen = ({ navigation }) => {
           </View>
         </View>
 
-        <TouchableOpacity 
-          style={styles.predictMatchButton}
-          onPress={() => navigation.navigate('CreatePrediction', { matchId: item.id })}
-        >
-          <Text style={styles.predictMatchButtonText}>Hacer Predicción</Text>
-        </TouchableOpacity>
+        {closed ? (
+          <View style={styles.predictMatchButtonDisabled}>
+            <Ionicons name="lock-closed" size={14} color={C.textSecondary} />
+            <Text style={styles.predictMatchButtonDisabledText}>Predicciones cerradas</Text>
+          </View>
+        ) : (
+          <TouchableOpacity 
+            style={styles.predictMatchButton}
+            onPress={() => navigation.navigate('CreatePrediction', { matchId: item.id })}
+          >
+            <Text style={styles.predictMatchButtonText}>Hacer Predicción</Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   };
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="rgba(10, 14, 20, 0.95)" />
+      <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
       
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -216,7 +248,7 @@ const HomeScreen = ({ navigation }) => {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={COLORS.primary}
+            tintColor={C.accent}
           />
         }
       >
@@ -232,7 +264,7 @@ const HomeScreen = ({ navigation }) => {
                     style={styles.avatarImage}
                   />
                 ) : (
-                  <Ionicons name="person" size={28} color={COLORS.primary} />
+                  <Ionicons name="person" size={28} color={C.primary} />
                 )}
               </View>
               <View style={styles.onlineIndicator} />
@@ -245,9 +277,10 @@ const HomeScreen = ({ navigation }) => {
             </View>
           </View>
           <View style={styles.pointsBadge}>
-            <Ionicons name="trophy" size={18} color={COLORS.primary} />
+            <Ionicons name="trophy" size={18} color={C.primary} />
             <Text style={styles.pointsText}>
-              {user?.total_points || 0} <Text style={styles.pointsLabel}>PTS</Text>
+              {userStats?.total_points ?? user?.total_points ?? 0}{' '}
+              <Text style={styles.pointsLabel}>PTS</Text>
             </Text>
           </View>
         </View>
@@ -257,7 +290,7 @@ const HomeScreen = ({ navigation }) => {
         <Animated.View style={sectionStyle(1)}>
         <TouchableOpacity
           style={styles.mundialBanner}
-          onPress={() => navigation.navigate('TournamentHome')}
+          onPress={() => navigation.navigate('TournamentList')}
           activeOpacity={0.88}
         >
           <ImageBackground
@@ -269,8 +302,8 @@ const HomeScreen = ({ navigation }) => {
             <View style={styles.mundialOverlay}>
               <View style={styles.mundialContent}>
                 <View style={styles.mundialText}>
-                  <Text style={styles.mundialTitle}>FIFA World Cup 2026</Text>
-                  <Text style={styles.mundialSub}>¡Predice y gana! Jun 11 – Jul 19</Text>
+                  <Text style={styles.mundialTitle}>Torneos / Pollas</Text>
+                  <Text style={styles.mundialSub}>Predice marcadores y compite</Text>
                 </View>
                 <View style={styles.mundialBadge}>
                   <Text style={styles.mundialBadgeText}>¡NUEVO!</Text>
@@ -287,82 +320,49 @@ const HomeScreen = ({ navigation }) => {
         </TouchableOpacity>
         </Animated.View>
 
-        {/* Main Dashboard Card */}
+        {/* ─── Banner Fórmula 1 ─── */}
         <Animated.View style={sectionStyle(2)}>
-        <View style={styles.dashboardCardContainer}>
-          <LinearGradient
-            colors={['rgba(0,230,119,0.12)', 'rgba(0,230,119,0.03)', 'transparent']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.dashboardCard}
+        <TouchableOpacity
+          style={styles.f1Banner}
+          onPress={() => navigation.navigate('F1EventsList')}
+          activeOpacity={0.88}
+        >
+          <ImageBackground
+            source={require('../../../assets/fondo-formula1.jpg')}
+            style={styles.f1ImageBg}
+            imageStyle={{ borderRadius: 16 }}
+            resizeMode="cover"
           >
-            {/* accent strip */}
-            <View style={styles.dashAccent} />
-
-            <View style={styles.dashboardContent}>
-              <View style={styles.rankingSection}>
-                <View style={styles.rankingLeft}>
-                  <Text style={styles.rankingLabel}>Tu Posición Global</Text>
-                  <View style={styles.rankingRow}>
-                    <Text style={styles.rankingNumber}>
-                      {userRanking ? `#${userRanking.position}` : '—'}
-                    </Text>
-                    {userRanking?.position <= 3 && (
-                      <Text style={styles.topBadge}>
-                        {userRanking.position === 1 ? '🥇' : userRanking.position === 2 ? '🥈' : '🥉'}
-                      </Text>
-                    )}
-                  </View>
-                  {userRanking ? (
-                    <View style={styles.rankingStats}>
-                      <Text style={styles.rankingStatItem}>
-                        <Text style={styles.rankingStatValue}>{userRanking.total_predictions}</Text>
-                        {' '}pred.
-                      </Text>
-                      <Text style={styles.rankingStatDot}>·</Text>
-                      <Text style={styles.rankingStatItem}>
-                        <Text style={styles.rankingStatValue}>{userRanking.effectiveness || 0}%</Text>
-                        {' '}efectividad
-                      </Text>
-                    </View>
-                  ) : (
-                    <Text style={styles.rankingSubtitle}>Haz predicciones para subir en el ranking</Text>
-                  )}
+            <View style={styles.f1Overlay}>
+              <View style={styles.f1Content}>
+                <View style={styles.f1Text}>
+                  <Text style={styles.f1Title}>Fórmula 1</Text>
+                  <Text style={styles.f1Sub}>Predice el podio y gana puntos</Text>
                 </View>
-                <TouchableOpacity
-                  style={styles.rankingBtn}
-                  onPress={() => navigation.navigate('Rankings')}
-                >
-                  <Ionicons name="podium" size={18} color={COLORS.backgroundDark} />
-                  <Text style={styles.rankingBtnText}>Ranking</Text>
-                </TouchableOpacity>
+                <View style={styles.f1Badge}>
+                  <Text style={styles.f1BadgeText}>¡NUEVO!</Text>
+                </View>
               </View>
-
-              {userRanking && (
-                <View style={styles.miniStatsRow}>
-                  <View style={styles.miniStat}>
-                    <Text style={styles.miniStatVal}>{userRanking.correct_predictions || 0}</Text>
-                    <Text style={styles.miniStatLabel}>Aciertos</Text>
-                  </View>
-                  <View style={styles.miniStatDiv} />
-                  <View style={styles.miniStat}>
-                    <Text style={styles.miniStatVal}>{user?.total_points || 0}</Text>
-                    <Text style={styles.miniStatLabel}>Puntos</Text>
-                  </View>
-                  <View style={styles.miniStatDiv} />
-                  <View style={styles.miniStat}>
-                    <Text style={styles.miniStatVal}>{userRanking.total_predictions || 0}</Text>
-                    <Text style={styles.miniStatLabel}>Predicciones</Text>
-                  </View>
-                </View>
-              )}
+              <View style={styles.f1Flags}>
+                <Ionicons name="flag" size={16} color="#fff" style={{ marginRight: 6 }} />
+                <Text style={styles.f1FlagText}>Grandes Premios · Predicciones</Text>
+                <Ionicons name="chevron-forward" size={18} color="#fff" style={{ marginLeft: 6 }} />
+              </View>
             </View>
-          </LinearGradient>
-        </View>
+          </ImageBackground>
+        </TouchableOpacity>
         </Animated.View>
 
-        {/* Predicciones Disponibles Section */}
-        <Animated.View style={sectionStyle(3)}>
+        {/* Main Dashboard Card — oculto por ahora (posición global / ranking)
+        <Animated.View style={sectionStyle(2)}>
+        <View style={styles.dashboardCardContainer}>
+          ...
+        </View>
+        </Animated.View>
+        */}
+
+        {/* Predicciones Disponibles Section — oculto por solicitud del cliente
+        <Animated.View style={sectionStyle(2)}>
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Partidos Disponibles</Text>
@@ -371,7 +371,11 @@ const HomeScreen = ({ navigation }) => {
             </TouchableOpacity>
           </View>
 
-          {matches.length > 0 ? (
+          {loading && matches.length === 0 ? (
+            <View style={styles.emptyMatches}>
+              <Text style={styles.emptyMatchesText}>Cargando partidos...</Text>
+            </View>
+          ) : matches.length > 0 ? (
             <FlatList
               horizontal
               data={matches.slice(0, 10)}
@@ -384,31 +388,36 @@ const HomeScreen = ({ navigation }) => {
             />
           ) : (
             <View style={styles.emptyMatches}>
-              <Ionicons name="football-outline" size={48} color={COLORS.textSecondary} />
+              <Ionicons name="football-outline" size={48} color={C.textSecondary} />
               <Text style={styles.emptyMatchesText}>No hay partidos disponibles</Text>
-              <Text style={styles.emptyMatchesSubtext}>Ya has hecho predicción en todos los partidos próximos</Text>
+              <Text style={styles.emptyMatchesSubtext}>
+                {user?.id
+                  ? 'Ya has hecho predicción en todos los partidos próximos'
+                  : 'No hay partidos programados por ahora'}
+              </Text>
             </View>
           )}
         </View>
         </Animated.View>
+        */}
 
         {/* Tu Actividad Section */}
-        <Animated.View style={sectionStyle(4)}>
+        <Animated.View style={sectionStyle(3)}>
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Tu Actividad</Text>
           <View style={styles.statsGrid}>
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>EFECTIVIDAD</Text>
               <Text style={styles.statValue}>
-                {user?.total_predictions > 0 
-                  ? Math.round((user?.correct_predictions / user?.total_predictions) * 100) 
+                {userStats?.processed_predictions > 0
+                  ? Math.round(userStats.accuracy || 0)
                   : 0}%
               </Text>
             </View>
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>ACIERTOS</Text>
               <Text style={styles.statValueSecondary}>
-                {user?.correct_predictions || 0}/{user?.total_predictions || 0}
+                {userStats?.correct_predictions || 0}/{userStats?.total_predictions || 0}
               </Text>
             </View>
           </View>
@@ -424,16 +433,16 @@ const HomeScreen = ({ navigation }) => {
         style={styles.fab}
         onPress={() => navigation.navigate('Predictions')}
       >
-        <Ionicons name="football" size={28} color="#0a0e14" />
+        <Ionicons name="football" size={28} color={C.onAccent} />
       </TouchableOpacity>
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (C) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0e14',
+    backgroundColor: C.background,
   },
   mundialBanner: { marginHorizontal: 16, marginBottom: 16, borderRadius: 16, overflow: 'hidden' },
   mundialImageBg: { borderRadius: 16, minHeight: 110 },
@@ -441,9 +450,20 @@ const styles = StyleSheet.create({
   mundialContent: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   mundialText: { flex: 1 },
   mundialTitle: { color: '#ffffff', fontWeight: 'bold', fontSize: 16, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
-  mundialSub: { color: COLORS.primary, fontSize: 12, marginTop: 2, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
-  mundialBadge: { backgroundColor: COLORS.primary, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
-  mundialBadgeText: { color: COLORS.backgroundDark, fontSize: 10, fontWeight: 'bold' },
+  mundialSub: { color: C.accent, fontSize: 12, marginTop: 2, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  mundialBadge: { backgroundColor: C.accent, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  mundialBadgeText: { color: C.onAccent, fontSize: 10, fontWeight: 'bold' },
+  f1Banner: { marginHorizontal: 16, marginBottom: 16, borderRadius: 16, overflow: 'hidden' },
+  f1ImageBg: { borderRadius: 16, minHeight: 120 },
+  f1Overlay: { backgroundColor: 'rgba(0,0,0,0.45)', padding: 16, borderRadius: 16 },
+  f1Content: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
+  f1Text: { flex: 1 },
+  f1Title: { color: '#ffffff', fontWeight: 'bold', fontSize: 17, letterSpacing: 0.3, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  f1Sub: { color: '#ffdcdc', fontSize: 12, marginTop: 2, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
+  f1Badge: { backgroundColor: '#ef4444', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  f1BadgeText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  f1Flags: { flexDirection: 'row', alignItems: 'center' },
+  f1FlagText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   mundialFlags: { flexDirection: 'row', alignItems: 'center' },
   mundialFlag: { fontSize: 22, marginRight: 6 },
   header: {
@@ -470,9 +490,9 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: 'rgba(0, 230, 119, 0.1)',
+    backgroundColor: C.cardHighlight,
     borderWidth: 2,
-    borderColor: 'rgba(0, 230, 119, 0.3)',
+    borderColor: C.cardBorder,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -488,29 +508,29 @@ const styles = StyleSheet.create({
     width: 14,
     height: 14,
     borderRadius: 7,
-    backgroundColor: COLORS.primary,
+    backgroundColor: C.accent,
     borderWidth: 2,
-    borderColor: '#0a0e14',
+    borderColor: C.background,
   },
   welcomeText: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: C.textFaint,
     fontWeight: '600',
     letterSpacing: 1.5,
   },
   greetingText: {
     fontSize: 18,
-    color: '#ffffff',
+    color: C.text,
     fontWeight: '700',
   },
   pointsBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: 'rgba(0, 230, 119, 0.1)',
+    backgroundColor: C.cardHighlight,
     flexShrink: 0,
     borderWidth: 1,
-    borderColor: 'rgba(0, 230, 119, 0.2)',
+    borderColor: C.cardBorder,
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 12,
@@ -518,7 +538,7 @@ const styles = StyleSheet.create({
   pointsText: {
     fontSize: 16,
     fontWeight: '700',
-    color: COLORS.primary,
+    color: C.primary,
   },
   pointsLabel: {
     fontSize: 10,
@@ -540,7 +560,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0, left: 0, right: 0,
     height: 2,
-    backgroundColor: COLORS.primary,
+    backgroundColor: C.accent,
   },
   dashboardContent: {},
   rankingSection: {
@@ -573,7 +593,7 @@ const styles = StyleSheet.create({
   topBadge: { fontSize: 22 },
   rankingStats: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
   rankingStatItem: { color: 'rgba(255,255,255,0.5)', fontSize: 12 },
-  rankingStatValue: { color: COLORS.primary, fontWeight: '700' },
+  rankingStatValue: { color: C.primary, fontWeight: '700' },
   rankingStatDot: { color: 'rgba(255,255,255,0.25)', fontSize: 12 },
   rankingSubtitle: {
     fontSize: 11,
@@ -585,13 +605,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: COLORS.primary,
+    backgroundColor: C.accent,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 12,
   },
   rankingBtnText: {
-    color: COLORS.backgroundDark,
+    color: C.onAccent,
     fontWeight: '700',
     fontSize: 13,
   },
@@ -602,7 +622,7 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   miniStat: { flex: 1, alignItems: 'center' },
-  miniStatVal: { fontSize: 18, fontWeight: 'bold', color: COLORS.white },
+  miniStatVal: { fontSize: 18, fontWeight: 'bold', color: C.white },
   miniStatLabel: { fontSize: 10, color: 'rgba(255,255,255,0.45)', marginTop: 2 },
   miniStatDiv: { width: 1, backgroundColor: 'rgba(255,255,255,0.1)', marginHorizontal: 4 },
   section: {
@@ -617,16 +637,16 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 18,
-    color: '#ffffff',
+    color: C.text,
     fontWeight: '700',
   },
   seeAllText: {
     fontSize: 13,
-    color: COLORS.primary,
+    color: C.primary,
     fontWeight: '600',
     paddingHorizontal: 10,
     paddingVertical: 4,
-    backgroundColor: COLORS.primary + '18',
+    backgroundColor: C.primary + '18',
     borderRadius: 20,
     overflow: 'hidden',
   },
@@ -635,9 +655,9 @@ const styles = StyleSheet.create({
   },
   matchCard: {
     width: 270,
-    backgroundColor: COLORS.cardDark,
+    backgroundColor: C.cardDark,
     borderWidth: 1,
-    borderColor: COLORS.primary + '22',
+    borderColor: C.primary + '22',
     borderRadius: 18,
     padding: 16,
     marginRight: 14,
@@ -650,7 +670,7 @@ const styles = StyleSheet.create({
   },
   matchLeague: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: C.textSubtle,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1.2,
@@ -665,18 +685,18 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: COLORS.primary,
+    backgroundColor: C.accent,
   },
   liveText: {
     fontSize: 10,
-    color: COLORS.primary,
+    color: C.primary,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   matchDateText: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: C.textFaint,
     fontWeight: '700',
     textTransform: 'uppercase',
   },
@@ -695,15 +715,15 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: C.surfaceMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: C.surfaceBorder,
     alignItems: 'center',
     justifyContent: 'center',
   },
   teamLogoText: {
     fontSize: 16,
-    color: COLORS.primary,
+    color: C.primary,
     fontWeight: '700',
   },
   teamLogo: {
@@ -713,7 +733,7 @@ const styles = StyleSheet.create({
   },
   teamNameText: {
     fontSize: 12,
-    color: '#ffffff',
+    color: C.text,
     fontWeight: '600',
     textAlign: 'center',
   },
@@ -722,17 +742,33 @@ const styles = StyleSheet.create({
   },
   vsText: {
     fontSize: 20,
-    color: 'rgba(255, 255, 255, 0.4)',
+    color: C.textFaint,
     fontWeight: '900',
   },
   predictMatchButton: {
-    backgroundColor: COLORS.primary,
+    backgroundColor: C.accent,
     paddingVertical: 11,
     borderRadius: 10,
     alignItems: 'center',
   },
+  predictMatchButtonDisabled: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
+    backgroundColor: `${C.primary}10`,
+    borderWidth: 1,
+    borderColor: `${C.primary}20`,
+  },
+  predictMatchButtonDisabledText: {
+    color: C.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
   predictMatchButtonText: {
-    color: COLORS.backgroundDark,
+    color: '#ffffff',
     fontSize: 13,
     fontWeight: '700',
   },
@@ -741,12 +777,12 @@ const styles = StyleSheet.create({
     paddingVertical: 40,
   },
   emptyMatchesText: {
-    color: 'rgba(255, 255, 255, 0.5)',
+    color: C.textFaint,
     fontSize: 14,
     marginTop: 12,
   },
   emptyMatchesSubtext: {
-    color: 'rgba(255, 255, 255, 0.3)',
+    color: C.textHint,
     fontSize: 12,
     marginTop: 4,
     textAlign: 'center',
@@ -758,27 +794,27 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: C.surfaceMuted,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
+    borderColor: C.surfaceBorder,
     padding: 16,
     borderRadius: 16,
   },
   statLabel: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: C.textSubtle,
     fontWeight: '700',
     letterSpacing: 0.5,
     marginBottom: 4,
   },
   statValue: {
     fontSize: 24,
-    color: COLORS.primary,
+    color: C.text,
     fontWeight: '700',
   },
   statValueSecondary: {
     fontSize: 24,
-    color: '#ffffff',
+    color: C.text,
     fontWeight: '700',
   },
   fab: {
@@ -788,10 +824,10 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: COLORS.primary,
+    backgroundColor: C.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: COLORS.primary,
+    shadowColor: C.accent,
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3,
     shadowRadius: 30,

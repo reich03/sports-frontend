@@ -1,19 +1,20 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Animated
+  ActivityIndicator, RefreshControl, Animated, StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../../constants/theme';
 import tournamentService from '../../services/tournament.service';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 const positionColors = { 1: '#ffd700', 2: '#c0c0c0', 3: '#cd7f32' };
 const positionBg = { 1: 'rgba(255,215,0,0.1)', 2: 'rgba(192,192,192,0.08)', 3: 'rgba(205,127,50,0.08)' };
 
-const LeaderboardItem = ({ item, isUser, index }) => {
+const LeaderboardItem = ({ item, isUser, index, styles, C }) => {
   const { position, user, total_points, correct_predictions } = item;
-  const posColor = positionColors[position] || COLORS.textSecondary;
+  const posColor = positionColors[position] || C.textSecondary;
   const isTop3 = position <= 3;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
@@ -31,13 +32,13 @@ const LeaderboardItem = ({ item, isUser, index }) => {
       <View style={[
         styles.itemCard,
         isUser && styles.itemCardUser,
-        isTop3 && { backgroundColor: positionBg[position] || COLORS.cardDark, borderColor: posColor + '44', borderWidth: 1 },
+        isTop3 && { backgroundColor: positionBg[position] || C.cardDark, borderColor: posColor + '44', borderWidth: 1 },
       ]}>
         <View style={[styles.positionBlock, isTop3 && { backgroundColor: posColor + '22', borderRadius: 10 }]}>
           {isTop3 ? (
             <Text style={[styles.posNumber, { color: posColor, fontSize: 18 }]}>{position}</Text>
           ) : (
-            <Text style={[styles.posNumber, { color: COLORS.textSecondary }]}>{position}</Text>
+            <Text style={[styles.posNumber, { color: C.textSecondary }]}>{position}</Text>
           )}
         </View>
 
@@ -48,14 +49,14 @@ const LeaderboardItem = ({ item, isUser, index }) => {
         </View>
 
         <View style={styles.userInfo}>
-          <Text style={[styles.username, isUser && { color: COLORS.primary }, isTop3 && { color: posColor }]} numberOfLines={1}>
+          <Text style={[styles.username, isUser && { color: C.primary }, isTop3 && { color: posColor }]} numberOfLines={1}>
             {user?.username || 'Usuario'}{isUser ? '  (Tú)' : ''}
           </Text>
           <Text style={styles.subInfo}>{correct_predictions} aciertos</Text>
         </View>
 
         <View style={styles.pointsBlock}>
-          <Text style={[styles.points, { color: isTop3 ? posColor : COLORS.white }]}>
+          <Text style={[styles.points, { color: isTop3 ? posColor : C.text }]}>
             {total_points}
           </Text>
           <Text style={styles.pointsLabel}>pts</Text>
@@ -68,6 +69,10 @@ const LeaderboardItem = ({ item, isUser, index }) => {
 export default function TournamentLeaderboardScreen({ navigation, route }) {
   const { tournamentId } = route.params;
   const insets = useSafeAreaInsets();
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
+
   const [leaderboard, setLeaderboard] = useState([]);
   const [userPosition, setUserPosition] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -116,17 +121,18 @@ export default function TournamentLeaderboardScreen({ navigation, route }) {
   if (loading) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator size="large" color={C.accent} />
       </View>
     );
   }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+          <Ionicons name="arrow-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Tabla de Posiciones</Text>
         <View style={{ width: 40 }} />
@@ -166,13 +172,13 @@ export default function TournamentLeaderboardScreen({ navigation, route }) {
         <FlatList
           data={leaderboard}
           keyExtractor={(item) => `${item.position}-${item.user?.id}`}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}
           onEndReached={loadMore}
           onEndReachedThreshold={0.3}
           contentContainerStyle={{ padding: 12, paddingBottom: 32 }}
-          ListFooterComponent={loadingMore ? <ActivityIndicator color={COLORS.primary} style={{ margin: 16 }} /> : null}
+          ListFooterComponent={loadingMore ? <ActivityIndicator color={C.accent} style={{ margin: 16 }} /> : null}
           renderItem={({ item, index }) => (
-            <LeaderboardItem item={item} isUser={item.user?.id === userPosition?.user_id} index={index} />
+            <LeaderboardItem item={item} isUser={item.user?.id === userPosition?.user_id} index={index} styles={styles} C={C} />
           )}
         />
       )}
@@ -180,33 +186,33 @@ export default function TournamentLeaderboardScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.backgroundDark },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.backgroundDark },
+const createStyles = (C) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.background },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: C.background },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  headerTitle: { fontSize: 18, fontWeight: 'bold', color: COLORS.white },
-  emptyText: { color: COLORS.textSecondary, fontSize: 15 },
-  myPositionCard: { marginHorizontal: 12, marginBottom: 12, backgroundColor: COLORS.primary + '18', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: COLORS.primary + '44' },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: C.text },
+  emptyText: { color: C.textSecondary, fontSize: 15 },
+  myPositionCard: { marginHorizontal: 12, marginBottom: 12, backgroundColor: C.primary + '18', borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: C.primary + '44' },
   myPosLeft: { alignItems: 'center', marginRight: 12, minWidth: 52 },
-  myPosNum: { fontSize: 30, fontWeight: 'bold', color: COLORS.primary },
-  myPosLabel: { fontSize: 10, color: COLORS.primary + 'AA', marginTop: 2 },
-  myPosDivider: { width: 1, height: 44, backgroundColor: COLORS.primary + '33', marginRight: 12 },
+  myPosNum: { fontSize: 30, fontWeight: 'bold', color: C.primary },
+  myPosLabel: { fontSize: 10, color: C.primary + 'AA', marginTop: 2 },
+  myPosDivider: { width: 1, height: 44, backgroundColor: C.primary + '33', marginRight: 12 },
   myPosStats: { flex: 1, flexDirection: 'row', justifyContent: 'space-around' },
   myPosStat: { alignItems: 'center' },
-  myPosStatVal: { fontSize: 20, fontWeight: 'bold', color: COLORS.white },
-  myPosStatLabel: { fontSize: 10, color: COLORS.textSecondary, marginTop: 2 },
-  itemCard: { backgroundColor: COLORS.cardDark, borderRadius: 14, padding: 12, marginBottom: 7, flexDirection: 'row', alignItems: 'center' },
-  itemCardUser: { borderWidth: 1.5, borderColor: COLORS.primary + '55', backgroundColor: COLORS.primary + '0D' },
+  myPosStatVal: { fontSize: 20, fontWeight: 'bold', color: C.text },
+  myPosStatLabel: { fontSize: 10, color: C.textSecondary, marginTop: 2 },
+  itemCard: { backgroundColor: C.cardDark, borderRadius: 14, padding: 12, marginBottom: 7, flexDirection: 'row', alignItems: 'center' },
+  itemCardUser: { borderWidth: 1.5, borderColor: C.primary + '55', backgroundColor: C.primary + '0D' },
   positionBlock: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', marginRight: 4 },
   posNumber: { fontSize: 15, fontWeight: 'bold' },
-  avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.border, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
-  avatarUser: { backgroundColor: COLORS.primary + '33' },
-  avatarText: { color: COLORS.white, fontWeight: 'bold', fontSize: 15 },
+  avatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.border, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+  avatarUser: { backgroundColor: C.primary + '33' },
+  avatarText: { color: C.text, fontWeight: 'bold', fontSize: 15 },
   userInfo: { flex: 1 },
-  username: { color: COLORS.white, fontWeight: '600', fontSize: 14 },
-  subInfo: { color: COLORS.textSecondary, fontSize: 11, marginTop: 2 },
+  username: { color: C.text, fontWeight: '600', fontSize: 14 },
+  subInfo: { color: C.textSecondary, fontSize: 11, marginTop: 2 },
   pointsBlock: { alignItems: 'flex-end' },
   points: { fontSize: 20, fontWeight: 'bold' },
-  pointsLabel: { fontSize: 10, color: COLORS.textSecondary },
+  pointsLabel: { fontSize: 10, color: C.textSecondary },
 });

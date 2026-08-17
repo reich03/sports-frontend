@@ -2,13 +2,13 @@
   "expo": {
     "name": "Master Sport",
     "slug": "mastersports",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/IconoFondoBlanco.png",
     "splash": {
       "image": "./assets/IconoMasterSports.png",
-      "backgroundColor": "#0f2319",
+      "backgroundColor": "#ffffff",
       "resizeMode": "contain"
     },
     "assetBundlePatterns": [
@@ -16,15 +16,20 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.progana.app"
+      "bundleIdentifier": "com.mastersport.app",
+      "buildNumber": "1",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/IconoMasterSports.png",
-        "backgroundColor": "#0f2319"
+        "foregroundImage": "./assets/IconoAdaptiveAndroid.png",
+        "backgroundColor": "#ffffff"
       },
-      "package": "com.progana.app",
-      "versionCode": 3
+      "package": "com.mastersport.app",
+      "versionCode": 4,
+      "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
       "bundler": "metro"

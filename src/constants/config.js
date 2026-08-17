@@ -11,6 +11,17 @@ const ENV = {
     apiUrl: 'https://api.mastersports25.com/api',
   },
 };
+/*const ENV = {
+  dev: {
+    apiUrl: 'http://192.168.1.7:3000/api',
+  },
+  staging: {
+    apiUrl: 'http://192.168.1.7:3000/api',
+  },
+  prod: {
+    apiUrl: 'http://192.168.1.7:3000/api',
+  },
+};*/
 
 const getEnvVars = (env = Constants.manifest?.releaseChannel) => {
   if (__DEV__) return ENV.dev;

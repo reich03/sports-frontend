@@ -7,12 +7,105 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { AdminHeader, AdminCard } from '../../components/admin';
+import { LinearGradient } from 'expo-linear-gradient';
+import { AdminHeader } from '../../components/admin';
 import { COLORS } from '../../constants/theme';
 import { sportService } from '../../services';
+import { getDefaultScoreRules } from '../../constants/scoring';
 import StatusModal from '../../components/StatusModal';
+
+const SCORE_RULE_FIELDS = [
+  {
+    key: 'exact_score',
+    title: 'Marcador exacto',
+    description: 'Resultado completo acertado (ej. 2-1)',
+  },
+  {
+    key: 'correct_winner',
+    title: 'Ganador correcto',
+    description: 'Acierta quién gana, sin marcador exacto',
+  },
+  {
+    key: 'correct_draw',
+    title: 'Empate correcto',
+    description: 'Predice empate y el partido termina empatado',
+  },
+  {
+    key: 'home_goal_bonus',
+    title: 'Goles del local',
+    description: 'Acierta los goles del equipo local',
+  },
+  {
+    key: 'away_goal_bonus',
+    title: 'Goles del visitante',
+    description: 'Acierta los goles del equipo visitante',
+  },
+];
+
+const POSITION_RULE_FIELDS = [
+  {
+    key: 'exact_podium',
+    title: 'Podio exacto',
+    description: 'Orden exacto del podio (1º, 2º, 3º)',
+  },
+  {
+    key: 'correct_position',
+    title: 'Posición correcta',
+    description: 'Piloto o equipo en la posición correcta',
+  },
+  {
+    key: 'in_podium',
+    title: 'En el podio',
+    description: 'En podio pero en posición distinta',
+  },
+  {
+    key: 'pole_position',
+    title: 'Pole position',
+    description: 'Acierta la pole position',
+  },
+];
+
+const RuleField = ({ title, description, value, onChange }) => (
+  <View style={styles.ruleRow}>
+    <View style={styles.ruleTextBlock}>
+      <Text style={styles.ruleTitle} numberOfLines={1}>
+        {title}
+      </Text>
+      <Text style={styles.ruleDescription} numberOfLines={2}>
+        {description}
+      </Text>
+    </View>
+    <View style={styles.pointsWrap}>
+      <Text style={styles.pointsLabel}>pts</Text>
+      <TextInput
+        style={styles.pointsInput}
+        keyboardType="number-pad"
+        maxLength={3}
+        value={value?.toString() ?? '0'}
+        onChangeText={onChange}
+        selectTextOnFocus
+      />
+    </View>
+  </View>
+);
+
+const ExampleRow = ({ prediction, detail, points }) => (
+  <View style={styles.exampleRow}>
+    <View style={styles.exampleLeft}>
+      <Text style={styles.examplePrediction}>{prediction}</Text>
+      {detail ? (
+        <Text style={styles.exampleDetail} numberOfLines={2}>
+          {detail}
+        </Text>
+      ) : null}
+    </View>
+    <View style={styles.examplePtsBadge}>
+      <Text style={styles.examplePtsText}>{points} pts</Text>
+    </View>
+  </View>
+);
 
 const ScoringRulesManagement = ({ navigation }) => {
   const [sports, setSports] = useState([]);
@@ -20,7 +113,7 @@ const ScoringRulesManagement = ({ navigation }) => {
   const [saving, setSaving] = useState(false);
   const [selectedSport, setSelectedSport] = useState(null);
   const [rules, setRules] = useState({});
-  
+
   const [statusModal, setStatusModal] = useState({
     visible: false,
     type: 'success',
@@ -32,13 +125,26 @@ const ScoringRulesManagement = ({ navigation }) => {
     loadSports();
   }, []);
 
+  const getDefaultRules = (predictionType) => {
+    if (predictionType === 'score') return getDefaultScoreRules();
+    if (predictionType === 'positions') {
+      return {
+        exact_podium: 10,
+        correct_position: 3,
+        in_podium: 1,
+        pole_position: 2,
+      };
+    }
+    return {};
+  };
+
   const loadSports = async () => {
     try {
       setLoading(true);
       const response = await sportService.getSports();
       const sportsData = response.data?.sports || response.data || [];
       setSports(sportsData);
-      
+
       if (sportsData.length > 0) {
         const firstSport = sportsData[0];
         setSelectedSport(firstSport);
@@ -57,35 +163,16 @@ const ScoringRulesManagement = ({ navigation }) => {
     }
   };
 
-  const getDefaultRules = (predictionType) => {
-    if (predictionType === 'score') {
-      return {
-        exact_score: 5,
-        correct_winner: 3,
-        correct_draw: 3,
-        exact_difference: 2,
-        one_score_correct: 1,
-      };
-    } else if (predictionType === 'positions') {
-      return {
-        exact_podium: 10,
-        correct_position: 3,
-        in_podium: 1,
-        pole_position: 2,
-      };
-    }
-    return {};
-  };
-
   const handleSportChange = (sport) => {
     setSelectedSport(sport);
     setRules(sport.scoring_rules || getDefaultRules(sport.prediction_type));
   };
 
   const handleRuleChange = (key, value) => {
-    setRules(prev => ({
+    const sanitized = value.replace(/[^0-9]/g, '');
+    setRules((prev) => ({
       ...prev,
-      [key]: parseInt(value) || 0
+      [key]: sanitized === '' ? 0 : parseInt(sanitized, 10),
     }));
   };
 
@@ -95,17 +182,16 @@ const ScoringRulesManagement = ({ navigation }) => {
     try {
       setSaving(true);
       await sportService.updateSport(selectedSport.id, {
-        scoring_rules: rules
+        scoring_rules: rules,
       });
 
       setStatusModal({
         visible: true,
         type: 'success',
-        title: '¡Guardado!',
-        message: 'Las reglas de puntuación se han actualizado correctamente.',
+        title: 'Guardado',
+        message: 'Las reglas de puntuación se actualizaron correctamente.',
       });
 
-      // Reload sports
       await loadSports();
     } catch (error) {
       console.error('Error saving rules:', error);
@@ -120,216 +206,95 @@ const ScoringRulesManagement = ({ navigation }) => {
     }
   };
 
+  const maxPerMatch =
+    (rules.exact_score || 0) +
+    Math.max(rules.correct_winner || 0, rules.correct_draw || 0) +
+    (rules.home_goal_bonus || 0) +
+    (rules.away_goal_bonus || 0);
+
+  const renderScoreExamples = () => {
+    const exact = rules.exact_score || 0;
+    const winner = rules.correct_winner || 0;
+    const homeBonus = rules.home_goal_bonus || 0;
+    const awayBonus = rules.away_goal_bonus || 0;
+
+    return (
+      <View style={styles.exampleCard}>
+        <Text style={styles.exampleHeading}>Ejemplo con resultado real 2-1</Text>
+        <Text style={styles.exampleHint}>
+          Máximo teórico por partido: {maxPerMatch} pts (si sumas todos los aciertos)
+        </Text>
+
+        <ExampleRow
+          prediction="Predicción 2-1"
+          detail="Marcador exacto"
+          points={exact}
+        />
+        <ExampleRow
+          prediction="Predicción 3-2"
+          detail="Ganador + goles visitante"
+          points={winner + awayBonus}
+        />
+        <ExampleRow
+          prediction="Predicción 2-0"
+          detail="Ganador + goles local"
+          points={winner + homeBonus}
+        />
+        <ExampleRow
+          prediction="Predicción 1-0"
+          detail="Solo ganador"
+          points={winner}
+        />
+        <ExampleRow
+          prediction="Predicción 2-3"
+          detail="Solo goles local"
+          points={homeBonus}
+        />
+        <ExampleRow prediction="Predicción 3-0" detail="Sin acierto" points={0} />
+      </View>
+    );
+  };
+
   const renderScoreRules = () => (
-    <View style={styles.rulesContainer}>
-      <Text style={styles.sectionTitle}>Puntos por Acierto</Text>
-      <Text style={styles.sectionSubtitle}>
+    <View style={styles.rulesBlock}>
+      <Text style={styles.blockTitle}>Puntos por acierto</Text>
+      <Text style={styles.blockSubtitle}>
         Define cuántos puntos gana el usuario según su predicción
       </Text>
 
-      {/* Exact Score */}
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="trophy" size={24} color={COLORS.primary} />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>Marcador Exacto</Text>
-            <Text style={styles.ruleDescription}>
-              El usuario predice el resultado exacto (ej: 2-1)
-            </Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.exact_score?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('exact_score', val)}
-        />
+      <View style={styles.rulesList}>
+        {SCORE_RULE_FIELDS.map((field) => (
+          <RuleField
+            key={field.key}
+            title={field.title}
+            description={field.description}
+            value={rules[field.key]}
+            onChange={(val) => handleRuleChange(field.key, val)}
+          />
+        ))}
       </View>
 
-      {/* Correct Winner */}
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="trophy-outline" size={24} color={COLORS.success} />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>Ganador Correcto</Text>
-            <Text style={styles.ruleDescription}>
-              Acierta quién gana pero no el marcador exacto
-            </Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.correct_winner?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('correct_winner', val)}
-        />
-      </View>
-
-      {/* Correct Draw */}
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="remove-circle-outline" size={24} color="#94a3b8" />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>Empate Correcto</Text>
-            <Text style={styles.ruleDescription}>
-              Predice empate y el resultado es empate
-            </Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.correct_draw?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('correct_draw', val)}
-        />
-      </View>
-
-      {/* Exact Difference */}
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="analytics-outline" size={24} color="#fbbf24" />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>Diferencia Exacta (Bonus)</Text>
-            <Text style={styles.ruleDescription}>
-              Acierta la diferencia de goles (ej: gana por 2)
-            </Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.exact_difference?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('exact_difference', val)}
-        />
-      </View>
-
-      {/* One Score Correct */}
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="checkmark-circle-outline" size={24} color="#60a5fa" />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>Un Marcador Correcto</Text>
-            <Text style={styles.ruleDescription}>
-              Acierta solo el marcador del local o visitante
-            </Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.one_score_correct?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('one_score_correct', val)}
-        />
-      </View>
-
-      {/* Example Section */}
-      <View style={styles.exampleSection}>
-        <Text style={styles.exampleTitle}>📊 Ejemplo de Puntuación</Text>
-        <Text style={styles.exampleSubtitle}>Resultado Real: 2-1</Text>
-        
-        <View style={styles.exampleRow}>
-          <Text style={styles.examplePrediction}>Predicción 2-1:</Text>
-          <Text style={styles.examplePoints}>{rules.exact_score || 0} pts (exacto)</Text>
-        </View>
-        
-        <View style={styles.exampleRow}>
-          <Text style={styles.examplePrediction}>Predicción 3-2:</Text>
-          <Text style={styles.examplePoints}>
-            {(rules.correct_winner || 0) + (rules.exact_difference || 0)} pts (ganador + diferencia)
-          </Text>
-        </View>
-        
-        <View style={styles.exampleRow}>
-          <Text style={styles.examplePrediction}>Predicción 1-0:</Text>
-          <Text style={styles.examplePoints}>{rules.correct_winner || 0} pts (ganador)</Text>
-        </View>
-        
-        <View style={styles.exampleRow}>
-          <Text style={styles.examplePrediction}>Predicción 2-0:</Text>
-          <Text style={styles.examplePoints}>
-            {(rules.correct_winner || 0) + (rules.one_score_correct || 0)} pts (ganador + local)
-          </Text>
-        </View>
-        
-        <View style={styles.exampleRow}>
-          <Text style={styles.examplePrediction}>Predicción 0-1:</Text>
-          <Text style={styles.examplePoints}>{rules.one_score_correct || 0} pts (solo visitante)</Text>
-        </View>
-        
-        <View style={styles.exampleRow}>
-          <Text style={styles.examplePrediction}>Predicción 3-0:</Text>
-          <Text style={styles.examplePoints}>0 pts (nada correcto)</Text>
-        </View>
-      </View>
+      {renderScoreExamples()}
     </View>
   );
 
   const renderPositionRules = () => (
-    <View style={styles.rulesContainer}>
-      <Text style={styles.sectionTitle}>Puntos por Posición (F1, MotoGP)</Text>
+    <View style={styles.rulesBlock}>
+      <Text style={styles.blockTitle}>Puntos por posición</Text>
+      <Text style={styles.blockSubtitle}>
+        Reglas para deportes con predicción de podio (F1, MotoGP, etc.)
+      </Text>
 
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="trophy" size={24} color={COLORS.primary} />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>Podio Exacto</Text>
-            <Text style={styles.ruleDescription}>Orden exacto del podio</Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.exact_podium?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('exact_podium', val)}
-        />
-      </View>
-
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="podium" size={24} color={COLORS.success} />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>Posición Correcta</Text>
-            <Text style={styles.ruleDescription}>Equipo en posición correcta</Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.correct_position?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('correct_position', val)}
-        />
-      </View>
-
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="checkmark-circle" size={24} color="#60a5fa" />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>En el Podio</Text>
-            <Text style={styles.ruleDescription}>Equipo en podio pero posición incorrecta</Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.in_podium?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('in_podium', val)}
-        />
-      </View>
-
-      <View style={styles.ruleCard}>
-        <View style={styles.ruleHeader}>
-          <Ionicons name="flash" size={24} color="#fbbf24" />
-          <View style={styles.ruleInfo}>
-            <Text style={styles.ruleTitle}>Pole Position</Text>
-            <Text style={styles.ruleDescription}>Acierta la pole position</Text>
-          </View>
-        </View>
-        <TextInput
-          style={styles.pointsInput}
-          keyboardType="number-pad"
-          value={rules.pole_position?.toString() || '0'}
-          onChangeText={(val) => handleRuleChange('pole_position', val)}
-        />
+      <View style={styles.rulesList}>
+        {POSITION_RULE_FIELDS.map((field) => (
+          <RuleField
+            key={field.key}
+            title={field.title}
+            description={field.description}
+            value={rules[field.key]}
+            onChange={(val) => handleRuleChange(field.key, val)}
+          />
+        ))}
       </View>
     </View>
   );
@@ -348,50 +313,66 @@ const ScoringRulesManagement = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <AdminHeader title="Reglas de Puntuación" onBack={() => navigation.goBack()} />
-      
-      <ScrollView style={styles.scrollView}>
-        {/* Sport Selector */}
-        <View style={styles.sportSelector}>
-          {sports.map((sport) => (
-            <TouchableOpacity
-              key={sport.id}
-              style={[
-                styles.sportChip,
-                selectedSport?.id === sport.id && styles.sportChipActive
-              ]}
-              onPress={() => handleSportChange(sport)}
-            >
-              <Text style={[
-                styles.sportChipText,
-                selectedSport?.id === sport.id && styles.sportChipTextActive
-              ]}>
-                {sport.name}
+
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.toolbarCard}>
+          <Text style={styles.toolbarLabel}>Deporte</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.sportChipsRow}
+          >
+            {sports.map((sport) => {
+              const active = selectedSport?.id === sport.id;
+              return (
+                <TouchableOpacity
+                  key={sport.id}
+                  style={[styles.sportChip, active && styles.sportChipActive]}
+                  onPress={() => handleSportChange(sport)}
+                >
+                  <Text style={[styles.sportChipText, active && styles.sportChipTextActive]}>
+                    {sport.name}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {selectedSport ? (
+            <View style={styles.sportMeta}>
+              <Text style={styles.sportMetaText}>
+                Tipo: {selectedSport.prediction_type === 'score' ? 'Marcador' : 'Posiciones'}
               </Text>
-            </TouchableOpacity>
-          ))}
+            </View>
+          ) : null}
         </View>
 
-        {/* Rules based on sport type */}
         {selectedSport?.prediction_type === 'score' && renderScoreRules()}
         {selectedSport?.prediction_type === 'positions' && renderPositionRules()}
 
-        {/* Save Button */}
         <TouchableOpacity
           style={[styles.saveButton, saving && styles.saveButtonDisabled]}
           onPress={handleSave}
           disabled={saving}
+          activeOpacity={0.85}
         >
-          {saving ? (
-            <ActivityIndicator color={COLORS.backgroundDark} />
-          ) : (
-            <>
-              <Ionicons name="save" size={20} color={COLORS.backgroundDark} />
-              <Text style={styles.saveButtonText}>GUARDAR CAMBIOS</Text>
-            </>
-          )}
+          <LinearGradient
+            colors={[COLORS.primary, '#00c96a']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.saveButtonGradient}
+          >
+            {saving ? (
+              <ActivityIndicator color={COLORS.backgroundDark} />
+            ) : (
+              <Text style={styles.saveButtonText}>Guardar cambios</Text>
+            )}
+          </LinearGradient>
         </TouchableOpacity>
-
-        <View style={{ height: 40 }} />
       </ScrollView>
 
       <StatusModal
@@ -415,151 +396,210 @@ const styles = StyleSheet.create({
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 32,
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  sportSelector: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 20,
-    gap: 12,
+  toolbarCard: {
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}25`,
+  },
+  toolbarLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.white,
+    marginBottom: 10,
+  },
+  sportChipsRow: {
+    gap: 8,
+    paddingRight: 4,
   },
   sportChip: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: `${COLORS.primary}12`,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: `${COLORS.primary}30`,
   },
   sportChipActive: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
   sportChipText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
-    color: '#94a3b8',
+    color: COLORS.primary,
   },
   sportChipTextActive: {
     color: COLORS.backgroundDark,
   },
-  rulesContainer: {
-    padding: 20,
-    gap: 16,
+  sportMeta: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.06)',
   },
-  sectionTitle: {
-    fontSize: 20,
+  sportMetaText: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    fontWeight: '500',
+  },
+  rulesBlock: {
+    marginBottom: 8,
+  },
+  blockTitle: {
+    fontSize: 17,
     fontWeight: '700',
     color: COLORS.white,
     marginBottom: 4,
   },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: '#94a3b8',
-    marginBottom: 16,
+  blockSubtitle: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    lineHeight: 18,
+    marginBottom: 14,
   },
-  ruleCard: {
-    backgroundColor: 'rgba(0, 230, 119, 0.05)',
-    borderWidth: 1,
-    borderColor: 'rgba(0, 230, 119, 0.1)',
-    borderRadius: 12,
-    padding: 16,
+  rulesList: {
+    gap: 10,
+  },
+  ruleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  ruleHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
     gap: 12,
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}18`,
   },
-  ruleInfo: {
+  ruleTextBlock: {
     flex: 1,
+    minWidth: 0,
   },
   ruleTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     color: COLORS.white,
-    marginBottom: 4,
+    marginBottom: 3,
   },
   ruleDescription: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: COLORS.textSecondary,
+    lineHeight: 16,
+  },
+  pointsWrap: {
+    width: 64,
+    alignItems: 'center',
+    gap: 4,
+  },
+  pointsLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: `${COLORS.primary}90`,
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
   },
   pointsInput: {
-    width: 70,
-    height: 48,
-    backgroundColor: COLORS.backgroundDark,
-    borderWidth: 2,
-    borderColor: COLORS.primary,
-    borderRadius: 12,
-    fontSize: 20,
+    width: 64,
+    height: 44,
+    backgroundColor: '#1a1f28',
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}50`,
+    borderRadius: 10,
+    fontSize: 18,
     fontWeight: '800',
     color: COLORS.white,
     textAlign: 'center',
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false, textAlignVertical: 'center' } : {}),
   },
-  exampleSection: {
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.2)',
-    borderRadius: 12,
-    padding: 16,
+  exampleCard: {
     marginTop: 16,
+    backgroundColor: 'rgba(15, 23, 42, 0.6)',
+    borderRadius: 14,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    gap: 10,
   },
-  exampleTitle: {
-    fontSize: 16,
+  exampleHeading: {
+    fontSize: 14,
     fontWeight: '700',
     color: COLORS.white,
-    marginBottom: 4,
   },
-  exampleSubtitle: {
-    fontSize: 13,
-    color: '#60a5fa',
-    marginBottom: 12,
+  exampleHint: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    lineHeight: 17,
+    marginBottom: 4,
   },
   exampleRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(59, 130, 246, 0.1)',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  exampleLeft: {
+    flex: 1,
+    minWidth: 0,
   },
   examplePrediction: {
     fontSize: 13,
-    color: '#94a3b8',
+    fontWeight: '600',
+    color: COLORS.white,
+    marginBottom: 2,
   },
-  examplePoints: {
+  exampleDetail: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    lineHeight: 15,
+  },
+  examplePtsBadge: {
+    minWidth: 56,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: `${COLORS.primary}18`,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  examplePtsText: {
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
     color: COLORS.primary,
   },
   saveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 10,
-    backgroundColor: COLORS.primary,
-    marginHorizontal: 20,
-    marginTop: 24,
-    paddingVertical: 16,
+    marginTop: 20,
+    height: 48,
     borderRadius: 12,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    overflow: 'hidden',
   },
   saveButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.55,
+  },
+  saveButtonGradient: {
+    flex: 1,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   saveButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '700',
     color: COLORS.backgroundDark,
   },
 });

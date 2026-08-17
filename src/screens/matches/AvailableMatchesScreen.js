@@ -1,27 +1,28 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Image,
-  RefreshControl, StatusBar, Animated, LayoutAnimation, UIManager,
-  Platform, InteractionManager,
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  ScrollView,
+  TouchableOpacity,
+  Image,
+  TextInput,
+  RefreshControl,
+  StatusBar,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { matchService } from '../../services';
-import { COLORS } from '../../constants/theme';
 import { BASE_URL } from '../../constants/config';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
+import { arePredictionsClosed } from '../../utils/predictions';
 
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-
-const EXPAND_ANIM = {
-  duration: 240,
-  create: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-  update: { type: LayoutAnimation.Types.easeInEaseOut },
-  delete: { type: LayoutAnimation.Types.easeInEaseOut, property: LayoutAnimation.Properties.opacity },
-};
+const PAGE_SIZE = 10;
 
 const formatDate = (d) =>
   new Date(d).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -34,416 +35,793 @@ const getTeamLogo = (team) => {
   return `${BASE_URL}${team.logo}`;
 };
 
-/* ─── TeamBadge ─── */
-const TeamBadge = ({ team, size = 46 }) => {
+const getSportIcon = (name = '') => {
+  const lower = name.toLowerCase();
+  if (lower.includes('fútbol') || lower.includes('futbol')) return 'football-outline';
+  if (lower.includes('fórmula') || lower.includes('formula')) return 'speedometer-outline';
+  if (lower.includes('moto')) return 'bicycle-outline';
+  return 'trophy-outline';
+};
+
+const TeamBadge = ({ team, size = 42, styles }) => {
   const logo = getTeamLogo(team);
   return (
     <View style={[styles.badge, { width: size, height: size, borderRadius: size / 2 }]}>
-      {logo
-        ? <Image source={{ uri: logo }} style={styles.badgeImg} resizeMode="contain" />
-        : <Text style={styles.badgeText}>{(team?.short_name || '?').substring(0, 3)}</Text>}
+      {logo ? (
+        <Image source={{ uri: logo }} style={styles.badgeImg} resizeMode="contain" />
+      ) : (
+        <Text style={styles.badgeText}>{(team?.short_name || team?.name || '?').substring(0, 3)}</Text>
+      )}
     </View>
   );
 };
 
-/* ─── Skeleton rows while expanding ─── */
-const SkeletonRows = () => {
-  const pulse = useRef(new Animated.Value(0.4)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0.4, duration: 700, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
+const MatchCard = ({ match, navigation, styles, C }) => {
+  const home = match.home_team;
+  const away = match.away_team;
+  const league = match.league;
+  const sport = match.sport;
+  const round = match.roundInfo;
+  const closed = arePredictionsClosed(match);
+
   return (
-    <Animated.View style={{ opacity: pulse }}>
-      {[0, 1, 2].map(i => (
-        <View key={i} style={styles.skeletonRow}>
-          <View style={styles.skeletonCircle} />
-          <View style={styles.skeletonLines}>
-            <View style={[styles.skeletonLine, { width: i % 2 === 0 ? '65%' : '50%' }]} />
-            <View style={[styles.skeletonLine, { width: '35%', marginTop: 6 }]} />
-          </View>
-          <View style={styles.skeletonCircle} />
-          <View style={styles.skeletonBtn} />
+    <View style={styles.matchCard}>
+      <View style={styles.matchMeta}>
+        <View style={styles.metaLeft}>
+          <Ionicons name={getSportIcon(sport?.name)} size={12} color={C.primary} />
+          <Text style={styles.metaSport} numberOfLines={1}>{sport?.name || 'Deporte'}</Text>
+          {league?.name ? (
+            <>
+              <Text style={styles.metaDot}>·</Text>
+              <Text style={styles.metaLeague} numberOfLines={1}>{league.name}</Text>
+            </>
+          ) : null}
         </View>
-      ))}
-    </Animated.View>
-  );
-};
-
-/* ─── Mini match preview shown in collapsed card ─── */
-const CollapsedPreview = ({ firstMatch }) => {
-  if (!firstMatch) return null;
-  const home = firstMatch.home_team;
-  const away = firstMatch.away_team;
-  return (
-    <View style={styles.previewRow}>
-      <TeamBadge team={home} size={28} />
-      <Text style={styles.previewName} numberOfLines={1}>{home?.short_name || 'Local'}</Text>
-      <View style={styles.previewVs}><Text style={styles.previewVsText}>vs</Text></View>
-      <Text style={[styles.previewName, { textAlign: 'right' }]} numberOfLines={1}>{away?.short_name || 'Visit.'}</Text>
-      <TeamBadge team={away} size={28} />
-      <View style={styles.previewTime}>
-        <Text style={styles.previewTimeText}>{formatTime(firstMatch.match_date)}</Text>
+        <View style={styles.timePill}>
+          <Text style={styles.timePillText}>{formatTime(match.match_date)}</Text>
+        </View>
       </View>
+
+      {round?.name ? (
+        <Text style={styles.roundLabel} numberOfLines={1}>{round.name}</Text>
+      ) : null}
+
+      <Text style={styles.dateText}>{formatDate(match.match_date)}</Text>
+
+      <View style={styles.matchTeams}>
+        <View style={styles.teamSide}>
+          <TeamBadge team={home} styles={styles} />
+          <Text style={styles.teamName} numberOfLines={2}>
+            {home?.short_name || home?.name || 'Local'}
+          </Text>
+        </View>
+        <View style={styles.vsBubble}>
+          <Text style={styles.vsText}>VS</Text>
+        </View>
+        <View style={[styles.teamSide, styles.teamSideRight]}>
+          <TeamBadge team={away} styles={styles} />
+          <Text style={[styles.teamName, styles.teamNameRight]} numberOfLines={2}>
+            {away?.short_name || away?.name || 'Visitante'}
+          </Text>
+        </View>
+      </View>
+
+      {closed ? (
+        <View style={styles.closedRow}>
+          <Ionicons name="lock-closed" size={14} color={C.textSecondary} />
+          <Text style={styles.closedText}>Predicciones cerradas</Text>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={styles.predictBtn}
+          activeOpacity={0.85}
+          onPress={() => navigation.navigate('CreatePrediction', { matchId: match.id })}
+        >
+          <LinearGradient
+            colors={[C.accent, C.primaryDark]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.predictGradient}
+          >
+            <Text style={styles.predictBtnText}>Predecir</Text>
+            <Ionicons name="chevron-forward" size={16} color="#ffffff" />
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
     </View>
   );
 };
 
-/* ─── MatchRow ─── */
-const MatchRow = ({ match, navigation }) => (
-  <View style={styles.matchRow}>
-    <View style={styles.matchDateRow}>
-      <Ionicons name="calendar-outline" size={11} color={COLORS.textSecondary} />
-      <Text style={styles.matchDate}>{formatDate(match.match_date)}</Text>
-      <View style={styles.timePill}>
-        <Text style={styles.timePillText}>{formatTime(match.match_date)}</Text>
-      </View>
-    </View>
-    <View style={styles.matchTeams}>
-      <View style={styles.teamSide}>
-        <TeamBadge team={match.home_team} />
-        <Text style={styles.teamName} numberOfLines={2}>{match.home_team?.short_name || 'Local'}</Text>
-      </View>
-      <View style={styles.vsBubble}>
-        <Text style={styles.vsText}>VS</Text>
-      </View>
-      <View style={[styles.teamSide, { alignItems: 'flex-end' }]}>
-        <TeamBadge team={match.away_team} />
-        <Text style={[styles.teamName, { textAlign: 'right' }]} numberOfLines={2}>
-          {match.away_team?.short_name || 'Visitante'}
-        </Text>
-      </View>
-    </View>
-    <TouchableOpacity
-      style={styles.predictBtn}
-      activeOpacity={0.8}
-      onPress={() => navigation.navigate('CreatePrediction', { matchId: match.id })}
-    >
-      <LinearGradient
-        colors={[COLORS.primary, '#00b85a']}
-        start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-        style={styles.predictGradient}
-      >
-        <Ionicons name="flash" size={14} color={COLORS.backgroundDark} />
-        <Text style={styles.predictBtnText}>Predecir</Text>
-      </LinearGradient>
-    </TouchableOpacity>
-  </View>
-);
-
-/* ─── Screen ─── */
 const AvailableMatchesScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
-  const [matches, setMatches]           = useState([]);
-  const [loading, setLoading]           = useState(true);
-  const [refreshing, setRefreshing]     = useState(false);
-  const [expandedLeagues, setExpanded]  = useState(new Set());
-  const [loadingLeagues, setLoadingL]   = useState(new Set()); // skeleton guard
-  const togglingRef = useRef(new Set());
-  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
 
-  useFocusEffect(useCallback(() => { loadMatches(); }, []));
+  const [matches, setMatches] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSportId, setSelectedSportId] = useState('');
+  const [selectedLeagueId, setSelectedLeagueId] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadMatches();
+    }, [])
+  );
 
   const loadMatches = async () => {
     try {
       setLoading(true);
-      const res = await matchService.getUpcomingMatches({ limit: 100, exclude_predicted: true });
-      const data = res.data.matches || [];
-      setMatches(data);
-      const grouped = groupByLeague(data);
-      const firstKey = Object.keys(grouped)[0];
-      if (firstKey) setExpanded(new Set([firstKey]));
+      const res = await matchService.getUpcomingMatches({ limit: 100, exclude_predicted: 'true' });
+      setMatches(res.data.matches || []);
     } catch (e) {
       console.error(e);
+      setMatches([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
-      Animated.timing(fadeAnim, { toValue: 1, duration: 350, useNativeDriver: true }).start();
     }
   };
 
-  const onRefresh = () => { setRefreshing(true); loadMatches(); };
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadMatches();
+  };
 
-  const groupByLeague = (list) => {
-    const map = {};
-    list.forEach(m => {
-      const id = m.league_id || 'sin-liga';
-      if (!map[id]) map[id] = { league: m.league, sport: m.sport, rounds: {}, total: 0, firstMatch: m };
-      const rid = m.round_id || 'sin-jornada';
-      if (!map[id].rounds[rid]) map[id].rounds[rid] = { info: m.roundInfo, matches: [] };
-      map[id].rounds[rid].matches.push(m);
-      map[id].total++;
+  const sports = useMemo(() => {
+    const map = new Map();
+    matches.forEach((m) => {
+      if (m.sport?.id) map.set(m.sport.id, m.sport);
     });
-    return map;
+    return Array.from(map.values());
+  }, [matches]);
+
+  const leagues = useMemo(() => {
+    const map = new Map();
+    matches.forEach((m) => {
+      if (!m.league?.id) return;
+      if (selectedSportId && m.sport_id !== selectedSportId && m.sport?.id !== selectedSportId) return;
+      map.set(m.league.id, m.league);
+    });
+    return Array.from(map.values());
+  }, [matches, selectedSportId]);
+
+  const filteredMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return matches
+      .filter((m) => {
+        if (selectedSportId && m.sport_id !== selectedSportId && m.sport?.id !== selectedSportId) {
+          return false;
+        }
+        if (selectedLeagueId && m.league_id !== selectedLeagueId && m.league?.id !== selectedLeagueId) {
+          return false;
+        }
+        if (!q) return true;
+        const home = (m.home_team?.name || '').toLowerCase();
+        const away = (m.away_team?.name || '').toLowerCase();
+        const league = (m.league?.name || '').toLowerCase();
+        const round = (m.roundInfo?.name || '').toLowerCase();
+        return home.includes(q) || away.includes(q) || league.includes(q) || round.includes(q);
+      })
+      .sort((a, b) => new Date(a.match_date) - new Date(b.match_date));
+  }, [matches, selectedSportId, selectedLeagueId, searchQuery]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredMatches.length / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedMatches = useMemo(() => {
+    const start = (safePage - 1) * PAGE_SIZE;
+    return filteredMatches.slice(start, start + PAGE_SIZE);
+  }, [filteredMatches, safePage]);
+
+  const roundBatch = useMemo(() => {
+    if (filteredMatches.length < 2) return null;
+    const roundId = filteredMatches[0]?.round_id || filteredMatches[0]?.roundInfo?.id;
+    if (!roundId) return null;
+    const sameRound = filteredMatches.filter(
+      (m) => (m.round_id || m.roundInfo?.id) === roundId
+    );
+    if (sameRound.length < 2) return null;
+    return {
+      matches: sameRound,
+      roundName: sameRound[0]?.roundInfo?.name || 'Jornada',
+      leagueName: sameRound[0]?.league?.name,
+    };
+  }, [filteredMatches]);
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSelectedSportId('');
+    setSelectedLeagueId('');
+    setCurrentPage(1);
   };
 
-  const toggleLeague = (id) => {
-    if (togglingRef.current.has(id)) return;
-    togglingRef.current.add(id);
+  const hasActiveFilters = searchQuery || selectedSportId || selectedLeagueId;
 
-    const isExpanding = !expandedLeagues.has(id);
+  const renderFilterChip = (id, label, active, onPress, icon) => (
+    <TouchableOpacity
+      key={id}
+      style={[styles.filterChip, active && styles.filterChipActive]}
+      onPress={onPress}
+      activeOpacity={0.8}
+    >
+      {icon ? (
+        <Ionicons
+          name={icon}
+          size={14}
+          color={active ? C.onAccent : C.primary}
+        />
+      ) : null}
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={1}>
+        {label}
+      </Text>
+    </TouchableOpacity>
+  );
 
-    if (isExpanding) {
-      // 1 — expand immediately (shows skeleton)
-      LayoutAnimation.configureNext(EXPAND_ANIM);
-      setExpanded(prev => new Set([...prev, id]));
-      setLoadingL(prev => new Set([...prev, id]));
+  const renderListHeader = () => (
+    <View style={styles.headerBlock}>
+      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+        <Ionicons name="arrow-back" size={22} color={C.text} />
+      </TouchableOpacity>
 
-      // 2 — after interactions finish rendering, remove skeleton
-      InteractionManager.runAfterInteractions(() => {
-        setLoadingL(prev => { const s = new Set(prev); s.delete(id); return s; });
-        togglingRef.current.delete(id);
-      });
-    } else {
-      LayoutAnimation.configureNext(EXPAND_ANIM);
-      setExpanded(prev => { const s = new Set(prev); s.delete(id); return s; });
-      setTimeout(() => togglingRef.current.delete(id), 300);
+      <LinearGradient
+        colors={C.gradientHero}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroCard}
+      >
+        <View style={styles.heroTop}>
+          <Text
+            style={styles.heroTitle}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.85}
+          >
+            Predicciones disponibles
+          </Text>
+          <View style={styles.countBadge}>
+            <Text style={styles.countBadgeNum}>{filteredMatches.length}</Text>
+            <Text style={styles.countBadgeLabel}>partidos</Text>
+          </View>
+        </View>
+
+        <View style={styles.statsDivider} />
+
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <Text style={styles.statVal}>{matches.length}</Text>
+            <Text style={styles.statLabel}>Total</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={[styles.statVal, { color: C.primary }]}>{sports.length}</Text>
+            <Text style={styles.statLabel}>Deportes</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statVal}>{leagues.length}</Text>
+            <Text style={styles.statLabel}>Ligas</Text>
+          </View>
+        </View>
+      </LinearGradient>
+
+      <View style={styles.toolbarCard}>
+        <Text style={styles.toolbarLabel}>Buscar partido</Text>
+        <View style={styles.searchBox}>
+          <Ionicons name="search" size={18} color={C.textSecondary} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Equipo, liga o jornada..."
+            placeholderTextColor={C.textSecondary}
+            value={searchQuery}
+            onChangeText={(text) => {
+              setSearchQuery(text);
+              setCurrentPage(1);
+            }}
+          />
+          {searchQuery ? (
+            <TouchableOpacity onPress={() => { setSearchQuery(''); setCurrentPage(1); }}>
+              <Ionicons name="close-circle" size={18} color={C.textSecondary} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+
+        {sports.length > 0 ? (
+          <View style={styles.filterBlock}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.filterTitle}>Deporte</Text>
+              {hasActiveFilters ? (
+                <TouchableOpacity onPress={clearFilters} style={styles.clearBtn}>
+                  <Ionicons name="close-circle" size={14} color={C.error} />
+                  <Text style={styles.clearBtnText}>Limpiar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+            >
+              {renderFilterChip('all-sport', 'Todos', !selectedSportId, () => {
+                setSelectedSportId('');
+                setSelectedLeagueId('');
+                setCurrentPage(1);
+              }, 'apps-outline')}
+              {sports.map((sport) =>
+                renderFilterChip(
+                  sport.id,
+                  sport.name,
+                  selectedSportId === sport.id,
+                  () => {
+                    setSelectedSportId(sport.id);
+                    setSelectedLeagueId('');
+                    setCurrentPage(1);
+                  },
+                  getSportIcon(sport.name)
+                )
+              )}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {leagues.length > 0 ? (
+          <View style={styles.filterBlock}>
+            <Text style={styles.filterTitle}>Liga</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+            >
+              {renderFilterChip('all-league', 'Todas', !selectedLeagueId, () => {
+                setSelectedLeagueId('');
+                setCurrentPage(1);
+              }, 'ribbon-outline')}
+              {leagues.map((league) =>
+                renderFilterChip(
+                  league.id,
+                  league.name,
+                  selectedLeagueId === league.id,
+                  () => {
+                    setSelectedLeagueId(league.id);
+                    setCurrentPage(1);
+                  },
+                  'ribbon-outline'
+                )
+              )}
+            </ScrollView>
+          </View>
+        ) : null}
+      </View>
+
+      {roundBatch ? (
+        <TouchableOpacity
+          style={styles.roundBatchCard}
+          activeOpacity={0.85}
+          onPress={() =>
+            navigation.navigate('CreateRoundPrediction', {
+              matches: roundBatch.matches,
+              roundName: roundBatch.roundName,
+              leagueName: roundBatch.leagueName,
+            })
+          }
+        >
+          <View style={styles.roundBatchLeft}>
+            <Ionicons name="layers" size={18} color={C.primary} />
+            <View style={styles.roundBatchText}>
+              <Text style={styles.roundBatchTitle} numberOfLines={1}>
+                Predecir jornada completa
+              </Text>
+              <Text style={styles.roundBatchSub} numberOfLines={1}>
+                {roundBatch.roundName} · {roundBatch.matches.length} partidos
+              </Text>
+            </View>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={C.primary} />
+        </TouchableOpacity>
+      ) : null}
+
+      {loading && !refreshing ? (
+        <View style={styles.inlineLoader}>
+          <ActivityIndicator size="small" color={C.accent} />
+          <Text style={styles.inlineLoaderText}>Cargando partidos...</Text>
+        </View>
+      ) : null}
+    </View>
+  );
+
+  const renderPagination = () => {
+    const bottomPad = insets.bottom + 20;
+    if (filteredMatches.length <= PAGE_SIZE) {
+      return <View style={{ height: bottomPad }} />;
     }
+    return (
+      <View style={[styles.paginationWrap, { paddingBottom: bottomPad }]}>
+        <View style={styles.paginationBar}>
+        <TouchableOpacity
+          style={[styles.pageBtn, safePage === 1 && styles.pageBtnDisabled]}
+          onPress={() => setCurrentPage((p) => Math.max(1, p - 1))}
+          disabled={safePage === 1}
+        >
+          <Ionicons
+            name="chevron-back"
+            size={16}
+            color={safePage === 1 ? C.textSecondary : C.text}
+          />
+          <Text style={[styles.pageBtnText, safePage === 1 && styles.pageBtnTextDisabled]}>
+            Anterior
+          </Text>
+        </TouchableOpacity>
+
+        <View style={styles.pageIndicator}>
+          <Text style={styles.pageIndicatorText}>{safePage}</Text>
+          <Text style={styles.pageIndicatorSub}>de {totalPages}</Text>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.pageBtn, safePage === totalPages && styles.pageBtnDisabled]}
+          onPress={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+          disabled={safePage === totalPages}
+        >
+          <Text
+            style={[
+              styles.pageBtnText,
+              safePage === totalPages && styles.pageBtnTextDisabled,
+            ]}
+          >
+            Siguiente
+          </Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={safePage === totalPages ? C.textSecondary : C.text}
+          />
+        </TouchableOpacity>
+      </View>
+      </View>
+    );
   };
 
-  const grouped = groupByLeague(matches);
-  const leagueCount = Object.keys(grouped).length;
+  const renderEmpty = () => {
+    if (loading && !refreshing) return null;
+    return (
+      <View style={styles.empty}>
+        <View style={styles.emptyIconWrap}>
+          <Ionicons name="checkmark-done-circle" size={40} color={`${C.primary}80`} />
+        </View>
+        <Text style={styles.emptyTitle}>
+          {hasActiveFilters ? 'Sin resultados' : '¡Todo al día!'}
+        </Text>
+        <Text style={styles.emptyText}>
+          {hasActiveFilters
+            ? 'Prueba otro filtro o limpia la búsqueda'
+            : 'No hay partidos disponibles para predecir'}
+        </Text>
+        {hasActiveFilters ? (
+          <TouchableOpacity style={styles.emptyActionBtn} onPress={clearFilters}>
+            <Text style={styles.emptyActionText}>Quitar filtros</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <StatusBar barStyle="light-content" />
+      <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
 
-      {/* Header */}
-      <LinearGradient
-        colors={['rgba(0,230,119,0.08)', 'transparent']}
-        style={styles.header}
-      >
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={COLORS.white} />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>Predicciones disponibles</Text>
-          <View style={styles.headerMeta}>
-            <View style={styles.metaPill}>
-              <Ionicons name="football" size={10} color={COLORS.primary} />
-              <Text style={styles.metaText}>{matches.length} partidos</Text>
-            </View>
-            <View style={styles.metaPill}>
-              <Ionicons name="trophy" size={10} color={COLORS.primary} />
-              <Text style={styles.metaText}>{leagueCount} ligas</Text>
-            </View>
-          </View>
-        </View>
-        <View style={{ width: 40 }} />
-      </LinearGradient>
-
-      <Animated.ScrollView
-        style={{ opacity: fadeAnim }}
-        contentContainerStyle={{ padding: 14, paddingBottom: 48 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
+      <FlatList
+        data={loading && !refreshing ? [] : paginatedMatches}
+        keyExtractor={(item) => item.id?.toString()}
+        renderItem={({ item }) => <MatchCard match={item} navigation={navigation} styles={styles} C={C} />}
+        ListHeaderComponent={renderListHeader}
+        ListEmptyComponent={renderEmpty}
+        ListFooterComponent={renderPagination}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: 16 },
+          (paginatedMatches.length === 0 || (loading && !refreshing)) && styles.listContentEmpty,
+        ]}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />
+        }
         showsVerticalScrollIndicator={false}
-      >
-        {matches.length === 0 ? (
-          <View style={styles.empty}>
-            <Ionicons name="checkmark-done-circle" size={56} color={COLORS.primary} />
-            <Text style={styles.emptyTitle}>¡Todo al día!</Text>
-            <Text style={styles.emptyText}>No hay partidos disponibles para predecir.</Text>
-          </View>
-        ) : (
-          Object.entries(grouped).map(([leagueId, { league, sport, rounds, total, firstMatch }]) => {
-            const expanded  = expandedLeagues.has(leagueId);
-            const isLoading = loadingLeagues.has(leagueId);
-
-            return (
-              <View key={leagueId} style={[styles.leagueBlock, expanded && styles.leagueBlockExpanded]}>
-
-                {/* League header */}
-                <TouchableOpacity
-                  style={styles.leagueHeader}
-                  onPress={() => toggleLeague(leagueId)}
-                  activeOpacity={0.78}
-                >
-                  {/* Left: icon + info */}
-                  <View style={styles.leagueIcon}>
-                    <Ionicons name="trophy" size={16} color={COLORS.primary} />
-                  </View>
-                  <View style={styles.leagueInfo}>
-                    <Text style={styles.leagueName} numberOfLines={1}>{league?.name || 'Sin liga'}</Text>
-                    {sport && <Text style={styles.leagueSport}>{sport.name}</Text>}
-                  </View>
-                  {/* Right: count + chevron */}
-                  <View style={styles.leagueRight}>
-                    <View style={styles.countBadge}>
-                      <Text style={styles.countBadgeText}>{total}</Text>
-                    </View>
-                    <Ionicons
-                      name={expanded ? 'chevron-up' : 'chevron-down'}
-                      size={18} color={COLORS.textSecondary}
-                    />
-                  </View>
-                </TouchableOpacity>
-
-                {/* Collapsed preview: show next match */}
-                {!expanded && (
-                  <View style={styles.previewContainer}>
-                    <CollapsedPreview firstMatch={firstMatch} />
-                    <Text style={styles.previewMore}>
-                      {total > 1 ? `+${total - 1} más` : ''}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Expanded: skeleton or real content */}
-                {expanded && (
-                  <View style={styles.roundsContainer}>
-                    {isLoading ? (
-                      <View style={{ padding: 12 }}>
-                        <SkeletonRows />
-                      </View>
-                    ) : (
-                      Object.entries(rounds).map(([roundId, { info, matches: rMatches }]) => (
-                        <View key={roundId} style={styles.roundSection}>
-                          <View style={styles.roundLabel}>
-                            <View style={styles.roundDot} />
-                            <Text style={styles.roundName} numberOfLines={1}>{info?.name || 'Jornada'}</Text>
-                            <Text style={styles.roundCount}>{rMatches.length} partidos</Text>
-                            {rMatches.length > 1 && (
-                              <TouchableOpacity
-                                style={styles.jornBtn}
-                                onPress={() => navigation.navigate('CreateRoundPrediction', {
-                                  matches: rMatches,
-                                  roundName: info?.name || 'Jornada',
-                                  leagueName: league?.name,
-                                })}
-                              >
-                                <Ionicons name="flash" size={11} color={COLORS.backgroundDark} />
-                                <Text style={styles.jornBtnText}>Predecir jornada</Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                          {rMatches.map(m => (
-                            <MatchRow key={m.id} match={m} navigation={navigation} />
-                          ))}
-                        </View>
-                      ))
-                    )}
-                  </View>
-                )}
-              </View>
-            );
-          })
-        )}
-      </Animated.ScrollView>
+      />
     </View>
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.backgroundDark },
+const createStyles = (C) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.background },
+  listContent: { paddingHorizontal: 16 },
+  listContentEmpty: { flexGrow: 1 },
 
-  header: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: COLORS.border, gap: 8,
+  headerBlock: { paddingTop: 4, marginBottom: 4 },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: C.cardBackground,
+    borderWidth: 1,
+    borderColor: `${C.primary}20`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 10,
   },
-  backBtn: { width: 38, height: 38, borderRadius: 19, backgroundColor: COLORS.cardDark, justifyContent: 'center', alignItems: 'center' },
-  headerCenter: { flex: 1, alignItems: 'center' },
-  headerTitle: { color: COLORS.white, fontSize: 16, fontWeight: '700' },
-  headerMeta: { flexDirection: 'row', gap: 6, marginTop: 5 },
-  metaPill: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.primary + '22', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 10 },
-  metaText: { color: COLORS.primary, fontSize: 11, fontWeight: '600' },
+  heroCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: `${C.primary}20`,
+    backgroundColor: C.cardBackground,
+  },
+  heroTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  heroTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.text,
+    letterSpacing: -0.4,
+    minWidth: 0,
+  },
+  countBadge: {
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: `${C.primary}18`,
+    borderWidth: 1,
+    borderColor: `${C.primary}35`,
+    flexShrink: 0,
+  },
+  countBadgeNum: { fontSize: 16, fontWeight: '800', color: C.primary },
+  countBadgeLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: `${C.primary}90`,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  statsDivider: {
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    marginVertical: 14,
+  },
+  statsRow: { flexDirection: 'row', alignItems: 'center' },
+  statItem: { flex: 1, alignItems: 'center' },
+  statVal: { fontSize: 18, fontWeight: '800', color: C.text },
+  statLabel: { fontSize: 10, color: C.textSecondary, marginTop: 2, fontWeight: '500' },
+  statDivider: { width: 1, height: 34, backgroundColor: 'rgba(255, 255, 255, 0.08)' },
 
-  empty: { alignItems: 'center', paddingVertical: 60, gap: 12 },
-  emptyTitle: { color: COLORS.white, fontSize: 18, fontWeight: '700' },
-  emptyText: { color: COLORS.textSecondary, fontSize: 13, textAlign: 'center' },
+  toolbarCard: {
+    backgroundColor: C.cardBackground,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: `${C.primary}18`,
+    gap: 12,
+  },
+  toolbarLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1a1f28',
+    borderWidth: 1,
+    borderColor: `${C.primary}30`,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  searchInput: {
+    flex: 1,
+    color: C.text,
+    fontSize: 15,
+    padding: 0,
+    minHeight: 22,
+  },
+  filterBlock: { gap: 8 },
+  filterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  filterTitle: { fontSize: 12, fontWeight: '600', color: C.text },
+  clearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: `${C.error}12`,
+  },
+  clearBtnText: { fontSize: 11, fontWeight: '600', color: C.error },
+  chipsRow: { gap: 8, paddingRight: 4 },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: `${C.primary}10`,
+    borderWidth: 1,
+    borderColor: `${C.primary}28`,
+    maxWidth: 160,
+  },
+  filterChipActive: { backgroundColor: C.accent, borderColor: C.accent },
+  filterChipText: { fontSize: 13, fontWeight: '600', color: C.primary, flexShrink: 1 },
+  filterChipTextActive: { color: C.onAccent },
 
-  leagueBlock: {
-    marginBottom: 14, borderRadius: 16, overflow: 'hidden',
-    borderWidth: 1, borderColor: COLORS.border,
-    backgroundColor: COLORS.cardDark,
+  roundBatchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: `${C.primary}12`,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: `${C.primary}35`,
   },
-  leagueBlockExpanded: {
-    borderColor: 'rgba(0,230,119,0.25)',
-  },
-  leagueHeader: { flexDirection: 'row', alignItems: 'center', padding: 14, gap: 10 },
-  leagueIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: COLORS.primary + '20', justifyContent: 'center', alignItems: 'center' },
-  leagueInfo: { flex: 1 },
-  leagueName: { color: COLORS.white, fontWeight: '700', fontSize: 14 },
-  leagueSport: { color: COLORS.primary, fontSize: 11, marginTop: 1 },
-  leagueRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  countBadge: { backgroundColor: COLORS.primary, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2 },
-  countBadgeText: { color: COLORS.backgroundDark, fontSize: 12, fontWeight: '800' },
+  roundBatchLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 },
+  roundBatchText: { flex: 1, minWidth: 0 },
+  roundBatchTitle: { fontSize: 14, fontWeight: '700', color: C.text },
+  roundBatchSub: { fontSize: 12, color: C.textSecondary, marginTop: 2 },
 
-  /* Collapsed preview */
-  previewContainer: {
-    borderTopWidth: 1, borderTopColor: COLORS.border,
-    paddingHorizontal: 14, paddingVertical: 10,
-    flexDirection: 'row', alignItems: 'center', gap: 8,
+  inlineLoader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
   },
-  previewRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
-  previewName: { flex: 1, color: COLORS.textSecondary, fontSize: 12, fontWeight: '600' },
-  previewVs: { paddingHorizontal: 6 },
-  previewVsText: { color: 'rgba(255,255,255,0.25)', fontSize: 10, fontWeight: '700' },
-  previewTime: { backgroundColor: 'rgba(0,230,119,0.1)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
-  previewTimeText: { color: COLORS.primary, fontSize: 10, fontWeight: '700' },
-  previewMore: { color: COLORS.textSecondary, fontSize: 11 },
+  inlineLoaderText: { fontSize: 13, color: C.textSecondary, fontWeight: '500' },
 
-  /* Skeleton */
-  skeletonRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginBottom: 10, paddingVertical: 4,
+  matchCard: {
+    backgroundColor: C.cardBackground,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: `${C.primary}15`,
   },
-  skeletonCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.08)' },
-  skeletonLines: { flex: 1 },
-  skeletonLine: { height: 10, borderRadius: 5, backgroundColor: 'rgba(255,255,255,0.08)', width: '80%' },
-  skeletonBtn: { width: 70, height: 32, borderRadius: 8, backgroundColor: 'rgba(0,230,119,0.12)' },
-
-  roundsContainer: { borderTopWidth: 1, borderTopColor: COLORS.border },
-  roundSection: { padding: 12, paddingTop: 10 },
-  roundLabel: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
-  roundDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: COLORS.primary },
-  roundName: { color: COLORS.white, fontWeight: '600', fontSize: 13, flex: 1 },
-  roundCount: { color: COLORS.textSecondary, fontSize: 11 },
-  jornBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: COLORS.primary, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  jornBtnText: { fontSize: 11, fontWeight: '800', color: COLORS.backgroundDark },
-
-  /* Match card */
-  matchRow: {
-    backgroundColor: '#0d1f15',
-    borderRadius: 14, marginBottom: 10,
-    borderWidth: 1, borderColor: 'rgba(0,230,119,0.12)', overflow: 'hidden',
+  matchMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    gap: 8,
   },
-  matchDateRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, paddingTop: 10, paddingBottom: 4,
+  metaLeft: { flexDirection: 'row', alignItems: 'center', gap: 5, flex: 1, minWidth: 0 },
+  metaSport: { fontSize: 11, fontWeight: '600', color: C.primary, flexShrink: 1 },
+  metaDot: { color: C.textSecondary, fontSize: 11 },
+  metaLeague: { fontSize: 11, color: C.textSecondary, flex: 1 },
+  timePill: {
+    backgroundColor: `${C.primary}15`,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
   },
-  matchDate: { color: COLORS.textSecondary, fontSize: 11, flex: 1 },
-  timePill: { backgroundColor: 'rgba(0,230,119,0.12)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
-  timePillText: { color: COLORS.primary, fontSize: 11, fontWeight: '700' },
-
-  matchTeams: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 12, paddingVertical: 10,
-  },
+  timePillText: { color: C.primary, fontSize: 11, fontWeight: '700' },
+  roundLabel: { fontSize: 12, fontWeight: '600', color: C.text, marginBottom: 2 },
+  dateText: { fontSize: 11, color: C.textSecondary, marginBottom: 12 },
+  matchTeams: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   teamSide: { flex: 1, alignItems: 'flex-start', gap: 6 },
-  badge: { backgroundColor: COLORS.cardDark, borderWidth: 1, borderColor: COLORS.primary + '30', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  teamSideRight: { alignItems: 'flex-end' },
+  badge: {
+    backgroundColor: '#1a1f28',
+    borderWidth: 1,
+    borderColor: `${C.primary}30`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
   badgeImg: { width: '88%', height: '88%' },
-  badgeText: { color: COLORS.primary, fontSize: 12, fontWeight: '700' },
-  teamName: { color: COLORS.white, fontSize: 12, fontWeight: '600', maxWidth: 100 },
-
+  badgeText: { color: C.primary, fontSize: 11, fontWeight: '700' },
+  teamName: { color: C.text, fontSize: 12, fontWeight: '600', maxWidth: 110 },
+  teamNameRight: { textAlign: 'right' },
   vsBubble: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: 'rgba(0,230,119,0.1)',
-    borderWidth: 1, borderColor: 'rgba(0,230,119,0.25)',
-    justifyContent: 'center', alignItems: 'center', marginHorizontal: 6,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: `${C.primary}12`,
+    borderWidth: 1,
+    borderColor: `${C.primary}25`,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 4,
   },
-  vsText: { color: COLORS.primary, fontWeight: '900', fontSize: 11, letterSpacing: 0.5 },
-
-  predictBtn: { marginHorizontal: 12, marginBottom: 12, borderRadius: 10, overflow: 'hidden' },
+  vsText: { color: C.primary, fontWeight: '900', fontSize: 10 },
+  predictBtn: { borderRadius: 12, overflow: 'hidden' },
   predictGradient: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
   },
-  predictBtnText: { color: COLORS.backgroundDark, fontWeight: '800', fontSize: 13 },
+  predictBtnText: { color: '#ffffff', fontWeight: '800', fontSize: 14 },
+  closedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: `${C.primary}15`,
+  },
+  closedText: { color: C.textSecondary, fontSize: 13, fontWeight: '600' },
+
+  paginationWrap: {
+    marginTop: 8,
+  },
+  paginationBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: `${C.primary}15`,
+  },
+  pageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: `${C.primary}15`,
+    borderWidth: 1,
+    borderColor: `${C.primary}30`,
+    minWidth: 100,
+    justifyContent: 'center',
+  },
+  pageBtnDisabled: {
+    opacity: 0.45,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  pageBtnText: { fontSize: 13, fontWeight: '600', color: C.text },
+  pageBtnTextDisabled: { color: C.textSecondary },
+  pageIndicator: { alignItems: 'center' },
+  pageIndicatorText: { fontSize: 18, fontWeight: '800', color: C.primary },
+  pageIndicatorSub: { fontSize: 11, color: C.textSecondary, fontWeight: '500' },
+
+  empty: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: `${C.primary}10`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: { color: C.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  emptyText: { color: C.textSecondary, fontSize: 13, textAlign: 'center', lineHeight: 18 },
+  emptyActionBtn: {
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: `${C.primary}18`,
+    borderWidth: 1,
+    borderColor: `${C.primary}35`,
+  },
+  emptyActionText: { color: C.primary, fontWeight: '600', fontSize: 14 },
 });
 
 export default AvailableMatchesScreen;

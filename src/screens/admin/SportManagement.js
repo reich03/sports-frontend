@@ -104,9 +104,11 @@ const SportManagement = ({ navigation }) => {
         icon: formData.icon,
         prediction_type: prediction_type,
         scoring_rules: {
-          exact_score: 3,
-          correct_winner: 1,
-          exact_difference: 2
+          exact_score: 10,
+          correct_winner: 5,
+          correct_draw: 5,
+          home_goal_bonus: 2,
+          away_goal_bonus: 2
         }
       };
 
@@ -153,9 +155,11 @@ const SportManagement = ({ navigation }) => {
         icon: formData.icon,
         prediction_type: prediction_type,
         scoring_rules: {
-          exact_score: 3,
-          correct_winner: 1,
-          exact_difference: 2
+          exact_score: 10,
+          correct_winner: 5,
+          correct_draw: 5,
+          home_goal_bonus: 2,
+          away_goal_bonus: 2
         }
       };
 

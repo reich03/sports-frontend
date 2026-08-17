@@ -1,4 +1,6 @@
 import api from './api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import CONFIG from '../constants/config';
 
 const tournamentService = {
   // Listar todos los torneos disponibles
@@ -45,14 +47,23 @@ const tournamentService = {
   // Grupos (informativo)
   getGroups: (id) => api.get(`/tournaments/${id}/groups`),
 
+  // Equipos participantes (partidos del torneo)
+  getTeams: (id) => api.get(`/tournaments/${id}/teams`),
+
   // Mis predicciones
   getMyPredictions: (id) => api.get(`/tournaments/${id}/my-predictions`),
 
   // Participantes
-  getParticipants: (id) => api.get(`/tournaments/${id}/participants`),
+  getParticipants: (id, { active } = {}) => {
+    const params = {};
+    if (active !== undefined) params.active = active ? 'true' : 'false';
+    return api.get(`/tournaments/${id}/participants`, { params });
+  },
 
   // ADMIN
+  listTournamentsAdmin: () => api.get('/tournaments/admin/all'),
   createTournament: (data) => api.post('/tournaments', data),
+  updateTournament: (id, data) => api.put(`/tournaments/${id}`, data),
   updateStatus: (id, data) => api.put(`/tournaments/${id}/status`, data),
   submitMatchResult: (tournamentId, matchId, homeScore, awayScore) =>
     api.post(`/tournaments/${tournamentId}/matches/${matchId}/result`, {
@@ -66,7 +77,36 @@ const tournamentService = {
       champion_team_id: championTeamId,
       runner_up_team_id: runnerUpTeamId,
       third_place_team_id: thirdPlaceTeamId
-    })
+    }),
+
+  uploadTournamentBanner: async (tournamentId, imageUri) => {
+    const token = await AsyncStorage.getItem('userToken');
+    const formData = new FormData();
+    const filename = imageUri.split('/').pop();
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1]}` : 'image/jpeg';
+
+    formData.append('banner', {
+      uri: imageUri,
+      name: `${Date.now()}-${filename}`,
+      type,
+    });
+
+    const response = await fetch(`${CONFIG.apiUrl}/tournaments/${tournamentId}/banner`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.message || 'Error al subir el banner');
+    }
+    return data;
+  },
+
+  deleteTournamentBanner: (tournamentId) =>
+    api.delete(`/tournaments/${tournamentId}/banner`),
 };
 
 export default tournamentService;

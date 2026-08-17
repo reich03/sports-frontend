@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  FlatList, 
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
@@ -11,18 +12,46 @@ import {
   Platform,
   Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { COLORS, FONTS, SIZES } from '../../constants/theme';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { rankingService, sportService, leagueService, roundService } from '../../services';
 import { useAuth } from '../../context/AuthContext';
 import { BASE_URL } from '../../constants/config';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
+
+const RANKING_TABS = [
+  { key: 'global', label: 'Global', icon: 'globe-outline' },
+  { key: 'sport', label: 'Deporte', icon: 'football-outline' },
+  { key: 'league', label: 'Liga', icon: 'ribbon-outline' },
+];
+
+const POSITION_COLORS = { 1: '#ffd700', 2: '#c0c0c0', 3: '#cd7f32' };
+const POSITION_BG = {
+  1: 'rgba(255, 215, 0, 0.1)',
+  2: 'rgba(192, 192, 192, 0.08)',
+  3: 'rgba(205, 127, 50, 0.08)',
+};
+
+const getSportIcon = (name = '') => {
+  const lower = name.toLowerCase();
+  if (lower.includes('fútbol') || lower.includes('futbol')) return 'football-outline';
+  if (lower.includes('fórmula') || lower.includes('formula')) return 'speedometer-outline';
+  if (lower.includes('moto')) return 'bicycle-outline';
+  return 'trophy-outline';
+};
 
 const RankingsScreen = () => {
   const { user } = useAuth();
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
+  const insets = useSafeAreaInsets();
   const [rankings, setRankings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [rankingType, setRankingType] = useState('global'); // global, sport, league, round
+  const [rankingType, setRankingType] = useState('global');
   const [sports, setSports] = useState([]);
   const [leagues, setLeagues] = useState([]);
   const [rounds, setRounds] = useState([]);
@@ -35,16 +64,34 @@ const RankingsScreen = () => {
   }, []);
 
   useEffect(() => {
-    if (selectedSportId && rankingType === 'league') {
+    if (selectedSportId && (rankingType === 'league' || rankingType === 'round')) {
       loadLeagues(selectedSportId);
+    } else {
+      setLeagues([]);
     }
   }, [selectedSportId, rankingType]);
 
   useEffect(() => {
     if (selectedLeagueId && rankingType === 'round') {
       loadRounds(selectedLeagueId);
+    } else {
+      setRounds([]);
     }
   }, [selectedLeagueId, rankingType]);
+
+  useEffect(() => {
+    if (rankingType === 'sport' || rankingType === 'league' || rankingType === 'round') {
+      if (!selectedSportId && sports.length > 0) {
+        setSelectedSportId(sports[0].id);
+      }
+    }
+  }, [rankingType, sports, selectedSportId]);
+
+  useEffect(() => {
+    if (rankingType === 'league' && selectedSportId && leagues.length > 0 && !selectedLeagueId) {
+      setSelectedLeagueId(leagues[0].id);
+    }
+  }, [rankingType, selectedSportId, leagues, selectedLeagueId]);
 
   useEffect(() => {
     loadRankings();
@@ -83,7 +130,7 @@ const RankingsScreen = () => {
     try {
       setLoading(true);
       let response;
-      
+
       if (rankingType === 'global') {
         response = await rankingService.getGlobalRanking({ limit: 100 });
       } else if (rankingType === 'sport' && selectedSportId) {
@@ -97,7 +144,7 @@ const RankingsScreen = () => {
         setLoading(false);
         return;
       }
-      
+
       setRankings(response.data.rankings || []);
     } catch (error) {
       console.error('Error loading rankings:', error);
@@ -113,497 +160,620 @@ const RankingsScreen = () => {
     setRefreshing(false);
   }, [rankingType, selectedSportId, selectedLeagueId, selectedRoundId]);
 
-  const renderTab = (label, value) => (
+  const handleTypeChange = (type) => {
+    setRankingType(type);
+    setSelectedSportId(null);
+    setSelectedLeagueId(null);
+    setSelectedRoundId(null);
+    setLeagues([]);
+    setRounds([]);
+  };
+
+  const clearFilters = () => {
+    if (rankingType === 'league') {
+      setSelectedLeagueId(null);
+    } else if (rankingType === 'sport') {
+      setSelectedSportId(null);
+    }
+  };
+
+  const selectedSport = sports.find((s) => s.id === selectedSportId);
+  const selectedLeague = leagues.find((l) => l.id === selectedLeagueId);
+
+  const currentUserEntry = useMemo(
+    () => rankings.find((item) => item.User?.id === user?.id),
+    [rankings, user?.id]
+  );
+
+  const contextLabel = useMemo(() => {
+    if (rankingType === 'global') return 'Clasificación general';
+    if (rankingType === 'sport') return selectedSport ? selectedSport.name : 'Elige un deporte';
+    if (rankingType === 'league') {
+      if (selectedLeague) return selectedLeague.name;
+      if (selectedSport) return `${selectedSport.name} · elige liga`;
+      return 'Elige deporte y liga';
+    }
+    return 'Clasificación';
+  }, [rankingType, selectedSport, selectedLeague]);
+
+  const needsSelection =
+    (rankingType === 'sport' && !selectedSportId) ||
+    (rankingType === 'league' && !selectedLeagueId) ||
+    (rankingType === 'round' && !selectedRoundId);
+
+  const emptyHint = useMemo(() => {
+    if (rankingType === 'sport' && !selectedSportId) return 'Selecciona un deporte para ver el ranking';
+    if (rankingType === 'league' && !selectedSportId) return 'Selecciona un deporte';
+    if (rankingType === 'league' && !selectedLeagueId) return 'Selecciona una liga';
+    if (rankingType === 'round' && !selectedRoundId) return 'Selecciona una jornada';
+    if (rankingType === 'global') return 'Haz predicciones y comienza a sumar puntos';
+    return 'No hay datos para este filtro';
+  }, [rankingType, selectedSportId, selectedLeagueId, selectedRoundId]);
+
+  const renderFilterChip = (id, label, active, onPress, icon) => (
     <TouchableOpacity
-      style={[styles.tab, rankingType === value && styles.tabActive]}
-      onPress={() => {
-        setRankingType(value);
-        setSelectedSportId(null);
-        setSelectedLeagueId(null);
-        setSelectedRoundId(null);
-      }}
+      key={id}
+      style={[styles.filterChip, active && styles.filterChipActive]}
+      onPress={onPress}
+      activeOpacity={0.8}
     >
-      <Text style={[
-        styles.tabText,
-        rankingType === value && styles.tabTextActive
-      ]}>
+      {icon ? (
+        <Ionicons
+          name={icon}
+          size={14}
+          color={active ? C.onAccent : C.primary}
+        />
+      ) : null}
+      <Text style={[styles.filterChipText, active && styles.filterChipTextActive]} numberOfLines={1}>
         {label}
       </Text>
     </TouchableOpacity>
   );
 
-  const renderSportFilter = ({ item }) => (
-    <TouchableOpacity
-      style={[
-        styles.filterChip,
-        selectedSportId === item.id && styles.filterChipActive
-      ]}
-      onPress={() => {
-        setSelectedSportId(selectedSportId === item.id ? null : item.id);
-        setSelectedLeagueId(null);
-        setSelectedRoundId(null);
-      }}
-    >
-      <Text style={[
-        styles.filterChipText,
-        selectedSportId === item.id && styles.filterChipTextActive
-      ]}>
-        {item.name}
-      </Text>
-    </TouchableOpacity>
+  const renderListHeader = () => (
+    <View style={styles.headerBlock}>
+      <LinearGradient
+        colors={C.gradientHero}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.heroCard}
+      >
+        <View style={styles.heroTop}>
+          <View style={styles.heroIcon}>
+            <Ionicons name="podium" size={22} color={C.primary} />
+          </View>
+          <View style={styles.heroText}>
+            <Text style={styles.heroTitle}>Rankings</Text>
+            <Text style={styles.heroSubtitle} numberOfLines={1}>{contextLabel}</Text>
+          </View>
+          {!loading && rankings.length > 0 ? (
+            <View style={styles.countBadge}>
+              <Text style={styles.countBadgeNum}>{rankings.length}</Text>
+              <Text style={styles.countBadgeLabel}>jugadores</Text>
+            </View>
+          ) : null}
+        </View>
+      </LinearGradient>
+
+      <View style={styles.toolbarCard}>
+        <Text style={styles.toolbarLabel}>Vista</Text>
+        <View style={styles.typeTabs}>
+          {RANKING_TABS.map((tab) => {
+            const active = rankingType === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[styles.typeTab, active && styles.typeTabActive]}
+                onPress={() => handleTypeChange(tab.key)}
+                activeOpacity={0.85}
+              >
+                <Ionicons
+                  name={tab.icon}
+                  size={15}
+                  color={active ? C.onAccent : C.primary}
+                />
+                <Text style={[styles.typeTabText, active && styles.typeTabTextActive]}>
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {(rankingType === 'sport' || rankingType === 'league') && sports.length > 0 ? (
+          <View style={styles.filterBlock}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.filterTitle}>Deporte</Text>
+              {rankingType === 'sport' && selectedSportId ? (
+                <TouchableOpacity onPress={clearFilters} style={styles.clearBtn}>
+                  <Ionicons name="close-circle" size={14} color={C.error} />
+                  <Text style={styles.clearBtnText}>Limpiar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipsRow}
+            >
+              {sports.map((sport) =>
+                renderFilterChip(
+                  sport.id,
+                  sport.name,
+                  selectedSportId === sport.id,
+                  () => {
+                    setSelectedSportId(sport.id);
+                    setSelectedLeagueId(null);
+                    setSelectedRoundId(null);
+                  },
+                  getSportIcon(sport.name)
+                )
+              )}
+            </ScrollView>
+          </View>
+        ) : null}
+
+        {rankingType === 'league' && selectedSportId ? (
+          <View style={styles.filterBlock}>
+            <View style={styles.filterHeader}>
+              <Text style={styles.filterTitle}>Liga</Text>
+              {selectedLeagueId ? (
+                <TouchableOpacity onPress={clearFilters} style={styles.clearBtn}>
+                  <Ionicons name="close-circle" size={14} color={C.error} />
+                  <Text style={styles.clearBtnText}>Limpiar</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            {leagues.length === 0 ? (
+              <Text style={styles.filterEmpty}>No hay ligas para este deporte</Text>
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chipsRow}
+              >
+                {leagues.map((league) =>
+                  renderFilterChip(
+                    league.id,
+                    league.name,
+                    selectedLeagueId === league.id,
+                    () => {
+                      setSelectedLeagueId(league.id);
+                      setSelectedRoundId(null);
+                    },
+                    'ribbon-outline'
+                  )
+                )}
+              </ScrollView>
+            )}
+          </View>
+        ) : null}
+      </View>
+
+      {currentUserEntry ? (
+        <View style={styles.myPositionCard}>
+          <View style={styles.myPosLeft}>
+            <Text style={styles.myPosNum}>#{currentUserEntry.position}</Text>
+            <Text style={styles.myPosLabel}>Tu posición</Text>
+          </View>
+          <View style={styles.myPosDivider} />
+          <View style={styles.myPosStats}>
+            <View style={styles.myPosStat}>
+              <Text style={styles.myPosStatVal}>{currentUserEntry.total_points}</Text>
+              <Text style={styles.myPosStatLabel}>Puntos</Text>
+            </View>
+            <View style={styles.myPosStat}>
+              <Text style={styles.myPosStatVal}>{currentUserEntry.total_predictions}</Text>
+              <Text style={styles.myPosStatLabel}>Predicciones</Text>
+            </View>
+            <View style={styles.myPosStat}>
+              <Text style={styles.myPosStatVal}>{currentUserEntry.effectiveness}%</Text>
+              <Text style={styles.myPosStatLabel}>Efectividad</Text>
+            </View>
+          </View>
+        </View>
+      ) : null}
+
+      {loading && !refreshing ? (
+        <View style={styles.inlineLoader}>
+          <ActivityIndicator size="small" color={C.primary} />
+          <Text style={styles.inlineLoaderText}>Cargando clasificación...</Text>
+        </View>
+      ) : null}
+    </View>
   );
-
-  const renderLeagueFilter = ({ item }) => (
-    <TouchableOpacity
-      style={[
-        styles.filterChip,
-        selectedLeagueId === item.id && styles.filterChipActive
-      ]}
-      onPress={() => {
-        setSelectedLeagueId(selectedLeagueId === item.id ? null : item.id);
-        setSelectedRoundId(null);
-      }}
-    >
-      <Text style={[
-        styles.filterChipText,
-        selectedLeagueId === item.id && styles.filterChipTextActive
-      ]}>
-        {item.name}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  const renderRoundFilter = ({ item }) => (
-    <TouchableOpacity
-      style={[
-        styles.filterChip,
-        selectedRoundId === item.id && styles.filterChipActive
-      ]}
-      onPress={() => setSelectedRoundId(selectedRoundId === item.id ? null : item.id)}
-    >
-      <Text style={[
-        styles.filterChipText,
-        selectedRoundId === item.id && styles.filterChipTextActive
-      ]}>
-        {item.name}
-      </Text>
-    </TouchableOpacity>
-  );
-
-  const getMedalEmoji = (position) => {
-    if (position === 1) return '🥇';
-    if (position === 2) return '🥈';
-    if (position === 3) return '🥉';
-    return null;
-  };
-
-  const getBorderColor = (position) => {
-    if (position === 1) return '#FFD700'; // Gold
-    if (position === 2) return '#C0C0C0'; // Silver
-    if (position === 3) return '#CD7F32'; // Bronze
-    return 'transparent';
-  };
-
-  const getPositionColor = (position) => {
-    if (position === 1) return '#FFD700';
-    if (position === 2) return '#C0C0C0';
-    if (position === 3) return '#CD7F32';
-    return COLORS.textGray;
-  };
 
   const renderRankingItem = ({ item, index }) => {
     const isCurrentUser = item.User?.id === user?.id;
     const position = item.position || index + 1;
     const isTopThree = position <= 3;
-    
+    const posColor = POSITION_COLORS[position] || C.textSecondary;
+
     return (
-      <View style={[
-        styles.rankingCard,
-        isCurrentUser && styles.rankingCardCurrentUser
-      ]}>
-        {isCurrentUser && <View style={styles.currentUserIndicator} />}
-        
-        <View style={styles.rankingLeft}>
-          {/* Position Number */}
-          <View style={styles.positionContainer}>
-            <Text style={[
-              styles.rankingPosition,
-              isTopThree && styles.rankingPositionTop,
-              { color: getPositionColor(position) }
-            ]}>
-              {position}
-            </Text>
-          </View>
-          
-          {/* Avatar with Medal */}
-          <View style={styles.avatarWrapper}>
-            <View style={[
-              isTopThree ? styles.avatarLarge : styles.avatar,
-              isTopThree && { borderColor: getBorderColor(position), borderWidth: 2 },
-              isCurrentUser && !isTopThree && { borderColor: COLORS.primary, borderWidth: 2 }
-            ]}>
-              {item.User?.avatar ? (
-                <Image 
-                  source={{ uri: `${BASE_URL}${item.User.avatar}` }} 
-                  style={styles.avatarImage}
-                />
-              ) : (
-                <Text style={[
-                  styles.avatarText,
-                  isTopThree && styles.avatarTextLarge
-                ]}>
-                  {item.User?.username?.charAt(0).toUpperCase() || '?'}
-                </Text>
-              )}
-            </View>
-            {isTopThree && (
-              <View style={[styles.medalBadge, { backgroundColor: getBorderColor(position) }]}>
-                <Ionicons name="trophy" size={12} color="#fff" />
-              </View>
+      <View
+        style={[
+          styles.rankingCard,
+          isCurrentUser && styles.rankingCardCurrentUser,
+          isTopThree && {
+            backgroundColor: POSITION_BG[position],
+            borderColor: `${posColor}44`,
+            borderWidth: 1,
+          },
+        ]}
+      >
+        <View style={[styles.positionBlock, isTopThree && { backgroundColor: `${posColor}22` }]}>
+          <Text style={[styles.rankingPosition, isTopThree && { color: posColor, fontSize: 18 }]}>
+            {position}
+          </Text>
+        </View>
+
+        <View style={styles.avatarWrapper}>
+          <View
+            style={[
+              styles.avatar,
+              isTopThree && { borderWidth: 2, borderColor: posColor },
+              isCurrentUser && !isTopThree && { borderWidth: 2, borderColor: C.primary },
+            ]}
+          >
+            {item.User?.avatar ? (
+              <Image
+                source={{ uri: `${BASE_URL}${item.User.avatar}` }}
+                style={styles.avatarImage}
+              />
+            ) : (
+              <Text style={[styles.avatarText, isTopThree && { color: posColor }]}>
+                {item.User?.username?.charAt(0).toUpperCase() || '?'}
+              </Text>
             )}
           </View>
-          
-          {/* User Info */}
-          <View style={styles.userDetails}>
-            <Text style={[
-              styles.username,
-              isTopThree && styles.usernameTop,
-              isCurrentUser && styles.usernameCurrentUser
-            ]}>
-              {isCurrentUser ? `Tú (${item.User?.username})` : item.User?.username || 'Usuario'}
-            </Text>
-            <Text style={[
-              styles.userLevel,
-              isCurrentUser && styles.userLevelCurrentUser
-            ]}>
-              {isCurrentUser && !isTopThree
-                ? `Sube en ${Math.abs(item.total_points - (rankings[position - 2]?.total_points || 0))} pts`
-                : `${item.total_predictions} predicciones · ${item.effectiveness}%`}
-            </Text>
-          </View>
         </View>
-        
-        {/* Points */}
-        <View style={styles.rankingRight}>
-          <Text style={[
-            styles.points,
-            isTopThree && styles.pointsTop,
-            isCurrentUser && styles.pointsCurrentUser
-          ]}>
+
+        <View style={styles.userDetails}>
+          <Text
+            style={[
+              styles.username,
+              isTopThree && { color: posColor },
+              isCurrentUser && { color: C.primary },
+            ]}
+            numberOfLines={1}
+          >
+            {isCurrentUser ? `${item.User?.username} (Tú)` : item.User?.username || 'Usuario'}
+          </Text>
+          <Text style={styles.userMeta} numberOfLines={1}>
+            {item.total_predictions} predicciones · {item.effectiveness}% efectividad
+          </Text>
+        </View>
+
+        <View style={styles.pointsBlock}>
+          <Text style={[styles.points, { color: isTopThree ? posColor : C.white }]}>
             {item.total_points}
           </Text>
-          {isTopThree && (
-            <Text style={styles.pointsLabelTop}>Puntos</Text>
-          )}
+          <Text style={styles.pointsLabel}>pts</Text>
         </View>
       </View>
     );
   };
 
-  if (loading && !refreshing) {
+  const renderEmpty = () => {
+    if (loading && !refreshing) return null;
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+      <View style={styles.emptyContainer}>
+        <View style={styles.emptyIconWrap}>
+          <Ionicons name="podium-outline" size={40} color={`${C.primary}60`} />
+        </View>
+        <Text style={styles.emptyText}>
+          {needsSelection ? 'Selecciona un filtro' : 'No hay rankings disponibles'}
+        </Text>
+        <Text style={styles.emptySubtext}>{emptyHint}</Text>
       </View>
     );
-  }
+  };
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="rgba(10, 14, 20, 0.95)" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.iconContainer}>
-            <Ionicons name="trophy" size={24} color={COLORS.primary} />
-          </View>
-          <View>
-            <Text style={styles.headerTitle}>Rankings</Text>
-            <Text style={styles.headerSubtitle}>
-              {rankingType === 'global' && 'Clasificación general'}
-              {rankingType === 'sport' && 'Por deporte'}
-              {rankingType === 'league' && 'Por liga'}
-              {rankingType === 'round' && 'Por jornada'}
-            </Text>
-          </View>
-        </View>
-      </View>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
 
-      {/* Tabs */}
-      <View style={styles.tabsContainer}>
-        {renderTab('Global', 'global')}
-        {renderTab('Deporte', 'sport')}
-        {renderTab('Liga', 'league')}
-        {/* {renderTab('Jornada', 'round')} */}
-      </View>
-
-      {/* Sport Filters */}
-      {(rankingType === 'sport' || rankingType === 'league' || rankingType === 'round') && (
-        <View style={styles.filtersSection}>
-          <Text style={styles.filterLabel}>Seleccionar Deporte:</Text>
-          <FlatList
-            horizontal
-            data={sports}
-            renderItem={renderSportFilter}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.filtersList}
-            showsHorizontalScrollIndicator={false}
+      <FlatList
+        data={loading && !refreshing ? [] : rankings}
+        renderItem={renderRankingItem}
+        keyExtractor={(item, index) => `${item.User?.id}-${index}`}
+        ListHeaderComponent={renderListHeader}
+        ListEmptyComponent={renderEmpty}
+        contentContainerStyle={[
+          styles.listContent,
+          (rankings.length === 0 || (loading && !refreshing)) && styles.listContentEmpty,
+        ]}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={C.accent}
           />
-        </View>
-      )}
-
-      {/* League Filters */}
-      {(rankingType === 'league' || rankingType === 'round') && selectedSportId && (
-        <View style={styles.filtersSection}>
-          <Text style={styles.filterLabel}>Seleccionar Liga:</Text>
-          <FlatList
-            horizontal
-            data={leagues}
-            renderItem={renderLeagueFilter}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.filtersList}
-            showsHorizontalScrollIndicator={false}
-          />
-        </View>
-      )}
-
-      {/* Round Filters */}
-      {rankingType === 'round' && selectedLeagueId && (
-        <View style={styles.filtersSection}>
-          <Text style={styles.filterLabel}>Seleccionar Jornada:</Text>
-          <FlatList
-            horizontal
-            data={rounds}
-            renderItem={renderRoundFilter}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.filtersList}
-            showsHorizontalScrollIndicator={false}
-          />
-        </View>
-      )}
-
-      {/* Rankings List */}
-      {loading && !refreshing ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={COLORS.primary} />
-        </View>
-      ) : rankings.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Ionicons name="trophy-outline" size={60} color={`${COLORS.primary}40`} />
-          <Text style={styles.emptyText}>No hay rankings disponibles</Text>
-          <Text style={styles.emptySubtext}>
-            {rankingType === 'sport' && !selectedSportId && 'Selecciona un deporte'}
-            {rankingType === 'league' && !selectedLeagueId && 'Selecciona una liga'}
-            {rankingType === 'round' && !selectedRoundId && 'Selecciona una jornada'}
-            {rankingType === 'global' && 'Haz predicciones y comienza a ganar puntos'}
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={rankings}
-          renderItem={renderRankingItem}
-          keyExtractor={(item, index) => `${item.User?.id}-${index}`}
-          contentContainerStyle={styles.listContainer}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={COLORS.primary}
-            />
-          }
-        />
-      )}
+        }
+      />
     </View>
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (C) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.backgroundDark,
+    backgroundColor: C.background,
   },
-  centerContainer: {
-    flex: 1,
-    backgroundColor: COLORS.backgroundDark,
-    justifyContent: 'center',
-    alignItems: 'center',
+  listContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 32,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+  listContentEmpty: {
+    flexGrow: 1,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 16 : 60,
-    paddingBottom: 16,
-    backgroundColor: 'rgba(10, 14, 20, 0.95)',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(63, 255, 140, 0.1)',
+  headerBlock: {
+    paddingTop: 8,
+    marginBottom: 4,
   },
-  headerLeft: {
+  heroCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: `${C.primary}20`,
+    backgroundColor: C.cardBackground,
+  },
+  heroTop: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
   },
-  iconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#151a21',
+  heroIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: `${C.primary}15`,
     borderWidth: 1,
-    borderColor: 'rgba(63, 255, 140, 0.2)',
+    borderColor: `${C.primary}30`,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '900',
-    color: COLORS.primary,
-    letterSpacing: -0.8,
-  },
-  headerSubtitle: {
-    fontSize: 11,
-    color: '#a8abb3',
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  tabsContainer: {
-    flexDirection: 'row',
-    padding: SIZES.padding * 0.6,
-    backgroundColor: COLORS.cardBackground,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-    gap: 6,
-  },
-  tab: {
+  heroText: {
     flex: 1,
-    paddingVertical: SIZES.padding * 0.5,
+    minWidth: 0,
+  },
+  heroTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: C.white,
+    letterSpacing: -0.5,
+  },
+  heroSubtitle: {
+    fontSize: 13,
+    color: C.textSecondary,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  countBadge: {
     alignItems: 'center',
-    borderRadius: SIZES.radius,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    backgroundColor: `${C.primary}18`,
+    borderWidth: 1,
+    borderColor: `${C.primary}35`,
   },
-  tabActive: {
-    backgroundColor: COLORS.primary,
+  countBadgeNum: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: C.primary,
   },
-  tabText: {
-    color: COLORS.textGray,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  tabTextActive: {
-    color: COLORS.black,
+  countBadgeLabel: {
+    fontSize: 9,
     fontWeight: '700',
-  },
-  filtersSection: {
-    backgroundColor: COLORS.cardBackground,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border
-  },
-  filterLabel: {
-    color: COLORS.textGray,
-    fontSize: 11,
-    fontWeight: '700',
+    color: `${C.primary}90`,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
-    paddingHorizontal: SIZES.padding,
-    marginBottom: 8,
   },
-  filtersList: {
-    paddingHorizontal: SIZES.padding,
-  },
-  filterChip: {
-    backgroundColor: COLORS.backgroundDark,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
+  toolbarCard: {
+    backgroundColor: C.cardBackground,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: `${C.primary}18`,
+    gap: 14,
   },
-  filterChipActive: {
-    backgroundColor: COLORS.primary,
-    borderColor: COLORS.primary,
+  toolbarLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
   },
-  filterChipText: {
-    color: COLORS.textGray,
+  typeTabs: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  typeTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: `${C.primary}10`,
+    borderWidth: 1,
+    borderColor: `${C.primary}25`,
+  },
+  typeTabActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  typeTabText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: C.primary,
+  },
+  typeTabTextActive: {
+    color: C.onAccent,
+  },
+  filterBlock: {
+    gap: 8,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  filterTitle: {
     fontSize: 12,
     fontWeight: '600',
+    color: C.white,
+  },
+  clearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: `${C.error}12`,
+  },
+  clearBtnText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: C.error,
+  },
+  chipsRow: {
+    gap: 8,
+    paddingRight: 4,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: `${C.primary}10`,
+    borderWidth: 1,
+    borderColor: `${C.primary}28`,
+    maxWidth: 180,
+  },
+  filterChipActive: {
+    backgroundColor: C.accent,
+    borderColor: C.accent,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: C.primary,
+    flexShrink: 1,
   },
   filterChipTextActive: {
-    color: COLORS.black,
-    fontWeight: '700',
+    color: C.onAccent,
   },
-  listContainer: {
-    padding: SIZES.padding,
-  },
-  rankingCard: {
-    backgroundColor: COLORS.cardBackground,
-    paddingVertical: 16,
-    paddingHorizontal: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 230, 119, 0.05)',
-    position: 'relative',
-  },
-  rankingCardCurrentUser: {
-    backgroundColor: 'rgba(0, 230, 119, 0.1)',
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderTopColor: 'rgba(0, 230, 119, 0.3)',
-    borderBottomColor: 'rgba(0, 230, 119, 0.3)',
-  },
-  currentUserIndicator: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    bottom: 0,
-    width: 3,
-    backgroundColor: COLORS.primary,
-  },
-  rankingLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-    gap: 12,
-  },
-  positionContainer: {
-    width: 32,
-    alignItems: 'center',
-  },
-  rankingPosition: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: COLORS.textGray,
-  },
-  rankingPositionTop: {
-    fontSize: 20,
-    fontWeight: '700',
+  filterEmpty: {
+    fontSize: 12,
+    color: C.textSecondary,
     fontStyle: 'italic',
   },
+  myPositionCard: {
+    marginBottom: 12,
+    backgroundColor: `${C.primary}14`,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: `${C.primary}40`,
+  },
+  myPosLeft: {
+    alignItems: 'center',
+    marginRight: 12,
+    minWidth: 52,
+  },
+  myPosNum: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: C.primary,
+  },
+  myPosLabel: {
+    fontSize: 10,
+    color: `${C.primary}AA`,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  myPosDivider: {
+    width: 1,
+    height: 44,
+    backgroundColor: `${C.primary}33`,
+    marginRight: 12,
+  },
+  myPosStats: {
+    flex: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  myPosStat: {
+    alignItems: 'center',
+  },
+  myPosStatVal: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: C.white,
+  },
+  myPosStatLabel: {
+    fontSize: 10,
+    color: C.textSecondary,
+    marginTop: 2,
+    fontWeight: '500',
+  },
+  inlineLoader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 20,
+  },
+  inlineLoaderText: {
+    fontSize: 13,
+    color: C.textSecondary,
+    fontWeight: '500',
+  },
+  rankingCard: {
+    backgroundColor: C.cardBackground,
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  rankingCardCurrentUser: {
+    borderWidth: 1.5,
+    borderColor: `${C.primary}55`,
+    backgroundColor: `${C.primary}0D`,
+  },
+  positionBlock: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankingPosition: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: C.textSecondary,
+  },
   avatarWrapper: {
-    position: 'relative',
+    marginRight: 4,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: COLORS.primary + '30',
-    justifyContent: 'center',
-    alignItems: 'center',
-    overflow: 'hidden',
-  },
-  avatarLarge: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: COLORS.primary + '30',
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: `${C.primary}25`,
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
@@ -613,92 +783,64 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   avatarText: {
-    color: COLORS.primary,
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  avatarTextLarge: {
-    fontSize: 22,
-  },
-  medalBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: COLORS.backgroundDark,
+    color: C.white,
+    fontSize: 16,
+    fontWeight: '700',
   },
   userDetails: {
     flex: 1,
+    minWidth: 0,
   },
   username: {
-    color: COLORS.white,
+    color: C.white,
     fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  usernameTop: {
-    fontSize: 16,
     fontWeight: '600',
+    marginBottom: 2,
   },
-  usernameCurrentUser: {
-    fontWeight: '700',
+  userMeta: {
+    color: C.textSecondary,
+    fontSize: 11,
   },
-  userLevel: {
-    color: COLORS.textGray,
-    fontSize: 12,
-  },
-  userLevelCurrentUser: {
-    color: COLORS.primary,
-    fontWeight: '600',
-  },
-  rankingRight: {
+  pointsBlock: {
     alignItems: 'flex-end',
+    minWidth: 48,
   },
   points: {
-    color: COLORS.white,
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 18,
+    fontWeight: '800',
   },
-  pointsTop: {
-    color: COLORS.primary,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  pointsCurrentUser: {
-    color: COLORS.primary,
-    fontSize: 14,
-    fontWeight: '900',
-  },
-  pointsLabelTop: {
-    color: COLORS.textGray,
-    fontSize: 9,
-    fontWeight: '700',
-    letterSpacing: 1,
-    marginTop: 2,
+  pointsLabel: {
+    fontSize: 10,
+    color: C.textSecondary,
+    fontWeight: '600',
+    marginTop: 1,
   },
   emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    padding: SIZES.padding * 2,
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  emptyIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: `${C.primary}10`,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
   },
   emptyText: {
-    color: COLORS.white,
+    color: C.white,
     fontSize: 16,
     fontWeight: '700',
     textAlign: 'center',
-    marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   emptySubtext: {
-    color: COLORS.textGray,
+    color: C.textSecondary,
     fontSize: 13,
     textAlign: 'center',
+    lineHeight: 18,
   },
 });
 

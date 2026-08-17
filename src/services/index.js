@@ -231,6 +231,11 @@ export const teamService = {
     const response = await api.get(`/teams/sport/${sportId}`);
     return response.data;
   },
+
+  getTeamsByLeague: async (leagueId) => {
+    const response = await api.get(`/teams/league/${leagueId}`);
+    return response.data;
+  },
   
   createTeam: async (teamData) => {
     const response = await api.post('/teams', teamData);
@@ -479,6 +484,123 @@ export const roundService = {
   
   getRoundPredictions: async (roundId, params) => {
     const response = await api.get(`/rounds/${roundId}/predictions`, { params });
+    return response.data;
+  },
+};
+
+// ── F1: Pilotos ───────────────────────────────────────────────────────────
+export const driverService = {
+  getAllDrivers: async (params) => {
+    const response = await api.get('/drivers', { params });
+    return response.data;
+  },
+
+  getDriverById: async (driverId) => {
+    const response = await api.get(`/drivers/${driverId}`);
+    return response.data;
+  },
+
+  createDriver: async (driverData) => {
+    const response = await api.post('/drivers', driverData);
+    return response.data;
+  },
+
+  updateDriver: async (driverId, driverData) => {
+    const response = await api.put(`/drivers/${driverId}`, driverData);
+    return response.data;
+  },
+
+  deleteDriver: async (driverId) => {
+    const response = await api.delete(`/drivers/${driverId}`);
+    return response.data;
+  },
+
+  uploadDriverPhoto: async (driverId, imageUri) => {
+    const token = await AsyncStorage.getItem('userToken');
+    const formData = new FormData();
+    const filename = imageUri.split('/').pop();
+    const match = /\.(\w+)$/.exec(filename);
+    const type = match ? `image/${match[1]}` : 'image/jpeg';
+    formData.append('photo', {
+      uri: imageUri,
+      name: `${Date.now()}-${filename}`,
+      type,
+    });
+    const response = await fetch(`${CONFIG.apiUrl}/drivers/${driverId}/photo`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error?.message || 'Error al subir la foto');
+    return data;
+  },
+
+  deleteDriverPhoto: async (driverId) => {
+    const response = await api.delete(`/drivers/${driverId}/photo`);
+    return response.data;
+  },
+};
+
+// ── F1: Eventos y predicciones ────────────────────────────────────────────
+export const f1EventService = {
+  getEvents: async (params) => {
+    const response = await api.get('/f1-events', { params });
+    return response.data;
+  },
+
+  getEventById: async (eventId) => {
+    const response = await api.get(`/f1-events/${eventId}`);
+    return response.data;
+  },
+
+  createEvent: async (eventData) => {
+    const response = await api.post('/f1-events', eventData);
+    return response.data;
+  },
+
+  updateEvent: async (eventId, eventData) => {
+    const response = await api.put(`/f1-events/${eventId}`, eventData);
+    return response.data;
+  },
+
+  deleteEvent: async (eventId) => {
+    const response = await api.delete(`/f1-events/${eventId}`);
+    return response.data;
+  },
+
+  getEventDrivers: async (eventId) => {
+    const response = await api.get(`/f1-events/${eventId}/drivers`);
+    return response.data;
+  },
+
+  setEventDrivers: async (eventId, driversIds) => {
+    const response = await api.put(`/f1-events/${eventId}/drivers`, { drivers_ids: driversIds });
+    return response.data;
+  },
+
+  getEventResult: async (eventId) => {
+    const response = await api.get(`/f1-events/${eventId}/result`);
+    return response.data;
+  },
+
+  upsertEventResult: async (eventId, resultData) => {
+    const response = await api.put(`/f1-events/${eventId}/result`, resultData);
+    return response.data;
+  },
+
+  getMyPrediction: async (eventId) => {
+    const response = await api.get(`/f1-events/${eventId}/my-prediction`);
+    return response.data;
+  },
+
+  upsertMyPrediction: async (eventId, predictionData) => {
+    const response = await api.put(`/f1-events/${eventId}/my-prediction`, predictionData);
+    return response.data;
+  },
+
+  getEventLeaderboard: async (eventId) => {
+    const response = await api.get(`/f1-events/${eventId}/leaderboard`);
     return response.data;
   },
 };

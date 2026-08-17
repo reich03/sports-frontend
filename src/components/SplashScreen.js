@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,65 +6,69 @@ import {
   Animated,
   Dimensions,
   Image,
+  ImageBackground,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/theme';
 
-const { width } = Dimensions.get('window');
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const WC_IMAGE = require('../../assets/Todo-listo-para-el-sorteo-de-la-Copa-Mundial-de-la-FIFA.webp');
+const LOGO_HORIZONTAL = require('../../assets/logo_horizontal_blanco.png');
+const LOGO_MUNDIAL = require('../../assets/logo_mundial.png');
 
 const SplashScreen = () => {
+  const insets = useSafeAreaInsets();
   const [progress] = useState(new Animated.Value(0));
-  const [logoScale] = useState(new Animated.Value(0.8));
+  const [logoScale] = useState(new Animated.Value(0.9));
   const [logoOpacity] = useState(new Animated.Value(0));
-  const [textOpacity] = useState(new Animated.Value(0));
-    const [loadingText, setLoadingText] = useState('Cargando predicciones...');
+  const [cardOpacity] = useState(new Animated.Value(0));
+  const [cardTranslateY] = useState(new Animated.Value(16));
+  const [loadingText, setLoadingText] = useState('Cargando predicciones...');
   const [progressPercent, setProgressPercent] = useState(0);
+  const bgScale = useRef(new Animated.Value(1)).current;
+  const shimmer = useRef(new Animated.Value(0)).current;
+  const dot1 = useRef(new Animated.Value(0.3)).current;
+  const dot2 = useRef(new Animated.Value(0.3)).current;
+  const dot3 = useRef(new Animated.Value(0.3)).current;
 
   useEffect(() => {
-    // Logo animation
     Animated.parallel([
-      Animated.spring(logoScale, {
-        toValue: 1,
-        tension: 20,
-        friction: 7,
-        useNativeDriver: true,
-      }),
-      Animated.timing(logoOpacity, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
+      Animated.spring(logoScale, { toValue: 1, tension: 20, friction: 8, useNativeDriver: true }),
+      Animated.timing(logoOpacity, { toValue: 1, duration: 600, useNativeDriver: true }),
+      Animated.timing(cardOpacity, { toValue: 1, duration: 700, delay: 100, useNativeDriver: true }),
+      Animated.timing(cardTranslateY, { toValue: 0, duration: 700, delay: 100, useNativeDriver: true }),
+      Animated.timing(bgScale, { toValue: 1.06, duration: 8000, useNativeDriver: true }),
     ]).start();
 
-    // Text fade in
-    Animated.timing(textOpacity, {
-      toValue: 1,
-      duration: 800,
-      delay: 300,
-      useNativeDriver: true,
-    }).start();
+    Animated.loop(
+      Animated.timing(shimmer, { toValue: 1, duration: 2200, useNativeDriver: true })
+    ).start();
 
-    // Progress bar animation (más lento para apreciar)
-    Animated.timing(progress, {
-      toValue: 1,
-      duration: 3500,
-      useNativeDriver: false,
-    }).start();
+    const animateDot = (dot, delay) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(dot, { toValue: 1, duration: 350, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0.25, duration: 350, useNativeDriver: true }),
+        ])
+      );
+    animateDot(dot1, 0).start();
+    animateDot(dot2, 180).start();
+    animateDot(dot3, 360).start();
 
-    // Update percentage (más lento)
+    Animated.timing(progress, { toValue: 1, duration: 3500, useNativeDriver: false }).start();
+
     const interval = setInterval(() => {
-      setProgressPercent(prev => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
+      setProgressPercent((prev) => {
+        if (prev >= 100) return 100;
         return prev + 1.5;
       });
     }, 52);
 
-    // Loading text variations
     const textVariations = [
       'Cargando predicciones...',
-      'Preparando partidos...',
+      'Preparando partidos del Mundial...',
       'Sincronizando datos...',
       '¡Casi listo!',
     ];
@@ -85,54 +89,92 @@ const SplashScreen = () => {
     outputRange: ['0%', '100%'],
   });
 
+  const shimmerTranslate = shimmer.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-SCREEN_WIDTH * 0.5, SCREEN_WIDTH * 0.5],
+  });
+
   return (
     <View style={styles.container}>
-      {/* Logo Section */}
-      <Animated.View 
+      <Animated.View style={[StyleSheet.absoluteFill, { transform: [{ scale: bgScale }] }]}>
+        <ImageBackground source={WC_IMAGE} style={StyleSheet.absoluteFill} resizeMode="cover">
+          <LinearGradient
+            colors={['rgba(10,14,20,0.55)', 'rgba(10,14,20,0.82)', 'rgba(10,14,20,0.95)']}
+            locations={[0, 0.5, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+        </ImageBackground>
+      </Animated.View>
+
+      <View style={styles.topAccent} />
+
+      <View
         style={[
-          styles.logoContainer,
-          {
-            transform: [{ scale: logoScale }],
-            opacity: logoOpacity,
-          }
+          styles.content,
+          { paddingTop: insets.top + 20, paddingBottom: Math.max(insets.bottom, 16) + 12 },
         ]}
       >
-        <View style={styles.logoBox}>
-          <Image
-            source={require('../../assets/IconoMasterSports.png')}
-            style={styles.logoImage}
-            resizeMode="contain"
-          />
+        <Animated.View
+          style={[
+            styles.card,
+            { opacity: cardOpacity, transform: [{ translateY: cardTranslateY }] },
+          ]}
+        >
+          <View style={styles.shimmerTrack}>
+            <Animated.View style={[styles.shimmerBar, { transform: [{ translateX: shimmerTranslate }] }]}>
+              <LinearGradient
+                colors={['transparent', 'rgba(0,230,119,0.55)', 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={StyleSheet.absoluteFill}
+              />
+            </Animated.View>
+          </View>
+
+          <Animated.View style={[styles.logoWrap, { transform: [{ scale: logoScale }], opacity: logoOpacity }]}>
+            <Image source={LOGO_HORIZONTAL} style={styles.logoHorizontal} resizeMode="contain" />
+          </Animated.View>
+
+          <Text style={styles.tagline}>Domina tus predicciones deportivas</Text>
+
+          <View style={styles.mundialChip}>
+            <Text style={styles.mundialChipText}>FIFA WORLD CUP 2026</Text>
+            <Text style={styles.flagsInline}>🇲🇽 🇺🇸 🇨🇦</Text>
+          </View>
+
+          {/* Bloque de carga contenido */}
+          <View style={styles.statusBox}>
+            <View style={styles.progressBarContainer}>
+              <Animated.View style={[styles.progressBar, { width: progressWidth }]}>
+                <LinearGradient
+                  colors={[COLORS.primaryDark, COLORS.primary, COLORS.primaryLight]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={StyleSheet.absoluteFill}
+                />
+              </Animated.View>
+            </View>
+
+            <View style={styles.statusRow}>
+              <View style={styles.statusTextCol}>
+                <Text style={styles.statusLabel}>INICIANDO</Text>
+                <Text style={styles.loadingText} numberOfLines={1}>{loadingText}</Text>
+              </View>
+              <Text style={styles.progressPercent}>{Math.round(progressPercent)}%</Text>
+            </View>
+
+            <View style={styles.dotsRow}>
+              <Animated.View style={[styles.dot, { opacity: dot1 }]} />
+              <Animated.View style={[styles.dot, { opacity: dot2 }]} />
+              <Animated.View style={[styles.dot, { opacity: dot3 }]} />
+            </View>
+          </View>
+        </Animated.View>
+
+        <View style={styles.footer}>
+          <Image source={LOGO_MUNDIAL} style={styles.logoMundial} resizeMode="contain" />
+          <Text style={styles.footerText}>© 2026 Master Sport</Text>
         </View>
-      </Animated.View>
-
-      {/* Brand Name */}
-      <Animated.View style={[styles.brandContainer, { opacity: textOpacity }]}>
-        <Text style={styles.brandText}>
-          MASTER<Text style={styles.brandTextGreen}>SPORTS</Text>
-        </Text>
-        <Text style={styles.tagline}>ELIGE · COMPITE · GANA</Text>
-      </Animated.View>
-
-      {/* Progress Bar */}
-      <View style={styles.progressSection}>
-        <View style={styles.progressBarContainer}>
-          <Animated.View 
-            style={[
-              styles.progressBar,
-              { width: progressWidth }
-            ]} 
-          />
-        </View>
-        <Text style={styles.progressPercent}>{progressPercent}%</Text>
-      </View>
-
-      {/* Loading Text */}
-      <Text style={styles.loadingText}>{loadingText}</Text>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        <Text style={styles.footerText}>© 2026 MASTER SPORTS</Text>
       </View>
     </View>
   );
@@ -141,97 +183,159 @@ const SplashScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a1a0f',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
+    backgroundColor: COLORS.backgroundDark,
   },
-  logoContainer: {
-    marginBottom: 40,
+  topAccent: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+    backgroundColor: COLORS.primary,
+    opacity: 0.35,
   },
-  logoBox: {
-    width: 130,
-    height: 130,
-    backgroundColor: '#ffffff',
-    borderRadius: 30,
+  content: {
+    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#00000088',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.5,
-    shadowRadius: 18,
+    paddingHorizontal: 22,
+  },
+  card: {
+    backgroundColor: 'rgba(15, 20, 26, 0.9)',
+    borderRadius: 24,
+    paddingTop: 28,
+    paddingBottom: 22,
+    paddingHorizontal: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(63, 255, 140, 0.14)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
     elevation: 14,
-    padding: 14,
+    overflow: 'hidden',
   },
-  logoImage: {
-    width: '100%',
-    height: '100%',
+  shimmerTrack: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    overflow: 'hidden',
   },
-  brandContainer: {
+  shimmerBar: {
+    width: SCREEN_WIDTH * 0.35,
+    height: 2,
+  },
+  logoWrap: {
     alignItems: 'center',
-    marginBottom: 80,
+    marginBottom: 10,
   },
-  brandText: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#ffffff',
-    letterSpacing: 2,
-    marginBottom: 8,
-  },
-  brandTextGreen: {
-    color: COLORS.primary,
+  logoHorizontal: {
+    width: SCREEN_WIDTH * 0.74,
+    height: Math.min(SCREEN_WIDTH * 0.19, 82),
   },
   tagline: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-    letterSpacing: 3,
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#cbd5e1',
+    textAlign: 'center',
+    marginBottom: 14,
   },
-  progressSection: {
-    width: '100%',
+  mundialChip: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0, 230, 119, 0.08)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 230, 119, 0.18)',
+    paddingVertical: 8,
+    paddingHorizontal: 14,
     marginBottom: 16,
+  },
+  mundialChipText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: COLORS.primary,
+    letterSpacing: 1.2,
+  },
+  flagsInline: {
+    fontSize: 16,
+  },
+  statusBox: {
+    backgroundColor: 'rgba(10, 14, 20, 0.65)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(51, 65, 85, 0.7)',
+    padding: 14,
   },
   progressBarContainer: {
     width: '100%',
-    height: 4,
-    backgroundColor: 'rgba(0, 230, 119, 0.2)',
-    borderRadius: 2,
+    height: 5,
+    backgroundColor: 'rgba(0, 230, 119, 0.1)',
+    borderRadius: 3,
     overflow: 'hidden',
     marginBottom: 12,
   },
   progressBar: {
     height: '100%',
-    backgroundColor: COLORS.primary,
-    borderRadius: 2,
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
+    borderRadius: 3,
+    overflow: 'hidden',
   },
-  progressPercent: {
-    fontSize: 16,
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  statusTextCol: {
+    flex: 1,
+  },
+  statusLabel: {
+    fontSize: 9,
     fontWeight: '700',
     color: COLORS.primary,
-    letterSpacing: 1,
+    letterSpacing: 1.5,
+    marginBottom: 3,
   },
   loadingText: {
     fontSize: 12,
-    color: '#64748b',
-    letterSpacing: 1,
-    marginBottom: 120,
+    color: '#e2e8f0',
+    fontWeight: '500',
+  },
+  progressPercent: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: COLORS.primary,
+    minWidth: 52,
+    textAlign: 'right',
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 10,
+  },
+  dot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: COLORS.primary,
   },
   footer: {
-    position: 'absolute',
-    bottom: 40,
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    marginTop: 22,
+    gap: 8,
+  },
+  logoMundial: {
+    width: SCREEN_WIDTH * 0.48,
+    height: Math.min(SCREEN_WIDTH * 0.18, 72),
+    opacity: 0.95,
   },
   footerText: {
     fontSize: 9,
     fontWeight: '600',
-    color: '#475569',
+    color: '#64748b',
     letterSpacing: 2,
   },
 });

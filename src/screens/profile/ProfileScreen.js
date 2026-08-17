@@ -18,6 +18,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { COLORS } from '../../constants/theme';
 import { BASE_URL } from '../../constants/config';
 import StatusModal from '../../components/StatusModal';
@@ -25,9 +26,7 @@ import { userService, authService } from '../../services';
 
 const ProfileScreen = ({ navigation }) => {
   const { user, logout, refreshUser } = useAuth();
-  const [pushNotifications, setPushNotifications] = useState(true);
-  const [emailUpdates, setEmailUpdates] = useState(false);
-  const [darkMode, setDarkMode] = useState(true);
+  const { isDark, palette, setDarkMode } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const [logoutModal, setLogoutModal] = useState(false);
   
@@ -43,6 +42,7 @@ const ProfileScreen = ({ navigation }) => {
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [savingPassword, setSavingPassword] = useState(false);
+  const [userStats, setUserStats] = useState(null);
   
   // Status Modal
   const [statusModal, setStatusModal] = useState({
@@ -61,7 +61,12 @@ const ProfileScreen = ({ navigation }) => {
 
   const loadUserData = async () => {
     try {
-      await refreshUser();
+      const refreshed = await refreshUser();
+      const userId = refreshed?.id || user?.id;
+      if (userId) {
+        const statsRes = await userService.getUserStats(userId);
+        setUserStats(statsRes.data?.stats || null);
+      }
     } catch (error) {
       console.log('Error loading user data:', error);
     }
@@ -263,43 +268,47 @@ const ProfileScreen = ({ navigation }) => {
 
   const SettingRow = ({ icon, title, subtitle, onPress, rightElement, showBorder = true }) => (
     <TouchableOpacity 
-      style={[styles.settingRow, !showBorder && styles.settingRowNoBorder]}
+      style={[
+        styles.settingRow,
+        { borderBottomColor: palette.rowBorder },
+        !showBorder && styles.settingRowNoBorder,
+      ]}
       onPress={onPress}
       disabled={!onPress}
     >
-      <View style={styles.settingIcon}>
-        <Ionicons name={icon} size={24} color={COLORS.primary} />
+      <View style={[styles.settingIcon, { backgroundColor: palette.iconBg }]}>
+        <Ionicons name={icon} size={24} color={palette.primary} />
       </View>
       <View style={styles.settingContent}>
-        <Text style={styles.settingTitle}>{title}</Text>
-        {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+        <Text style={[styles.settingTitle, { color: palette.text }]}>{title}</Text>
+        {subtitle && <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>{subtitle}</Text>}
       </View>
       {rightElement || (
-        onPress && <Ionicons name="chevron-forward" size={20} color="#6b7280" />
+        onPress && <Ionicons name="chevron-forward" size={20} color={palette.textMuted} />
       )}
     </TouchableOpacity>
   );
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor="#0a0e14" />
+    <View style={[styles.container, { backgroundColor: palette.background }]}>
+      <StatusBar barStyle={palette.statusBar} backgroundColor={palette.background} />
       <ScrollView 
-        style={styles.scrollView}
+        style={[styles.scrollView, { backgroundColor: palette.background }]}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={COLORS.primary}
-            colors={[COLORS.primary]}
+            tintColor={palette.accent}
+            colors={[palette.accent]}
           />
         }
       >
         {/* User Profile Header */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarWrapper}>
-            <View style={styles.avatarContainer}>
+            <View style={[styles.avatarContainer, { backgroundColor: palette.accent, borderColor: palette.accent }]}>
               {user?.avatar ? (
                 <Image 
                   source={{ uri: `${BASE_URL}${user.avatar}` }} 
@@ -312,34 +321,34 @@ const ProfileScreen = ({ navigation }) => {
               )}
             </View>
             <TouchableOpacity 
-              style={styles.editAvatarButton}
+              style={[styles.editAvatarButton, { backgroundColor: palette.accent, borderColor: palette.background }]}
               onPress={handleAvatarPress}
             >
-              <Ionicons name="create" size={16} color="#0a0e14" />
+              <Ionicons name="create" size={16} color={palette.onAccent} />
             </TouchableOpacity>
           </View>
-          <Text style={styles.username}>{user?.username}</Text>
-          <Text style={styles.memberBadge}>Miembro de MasterSport</Text>
-          <Text style={styles.memberSince}>Miembro desde {memberSince}</Text>
+          <Text style={[styles.username, { color: palette.text }]}>{user?.username}</Text>
+          <Text style={[styles.memberBadge, { color: palette.primary }]}>Miembro de MasterSport</Text>
+          <Text style={[styles.memberSince, { color: palette.textMuted }]}>Miembro desde {memberSince}</Text>
         </View>
 
         {/* Admin Panel - Solo para super_admin */}
         {isAdmin && (
           <View style={styles.section}>
-            <Text style={styles.sectionHeader}>ADMINISTRACIÓN</Text>
-            <View style={styles.card}>
+            <Text style={[styles.sectionHeader, { color: palette.textMuted }]}>ADMINISTRACIÓN</Text>
+            <View style={[styles.card, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
               <TouchableOpacity 
                 style={[styles.settingRow, styles.settingRowNoBorder]}
                 onPress={() => navigation.navigate('AdminDashboard')}
               >
-                <View style={styles.settingIcon}>
-                  <Ionicons name="shield-checkmark" size={24} color={COLORS.primary} />
+                <View style={[styles.settingIcon, { backgroundColor: palette.iconBg }]}>
+                  <Ionicons name="shield-checkmark" size={24} color={palette.primary} />
                 </View>
                 <View style={styles.settingContent}>
-                  <Text style={styles.settingTitle}>Panel de Administración</Text>
-                  <Text style={styles.settingSubtitle}>Gestionar plataforma</Text>
+                  <Text style={[styles.settingTitle, { color: palette.text }]}>Panel de Administración</Text>
+                  <Text style={[styles.settingSubtitle, { color: palette.textMuted }]}>Gestionar plataforma</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color="#6b7280" />
+                <Ionicons name="chevron-forward" size={20} color={palette.textMuted} />
               </TouchableOpacity>
             </View>
           </View>
@@ -347,51 +356,53 @@ const ProfileScreen = ({ navigation }) => {
 
         {/* Stats Section */}
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>MIS ESTADÍSTICAS</Text>
+          <Text style={[styles.sectionHeader, { color: palette.textMuted }]}>MIS ESTADÍSTICAS</Text>
           <View style={styles.statsContainer}>
-            <View style={[styles.statCard, styles.statCardHighlight]}>
-              <View style={styles.statIconContainer}>
-                <Ionicons name="trophy" size={28} color={COLORS.primary} />
+            <View style={[styles.statCard, styles.statCardHighlight, { backgroundColor: palette.cardHighlight, borderColor: palette.cardBorder }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: palette.iconBg }]}>
+                <Ionicons name="trophy" size={28} color={palette.primary} />
               </View>
-              <Text style={styles.statValue}>{user?.total_points || 0}</Text>
-              <Text style={styles.statLabel}>Puntos Totales</Text>
+              <Text style={[styles.statValue, { color: palette.primary }]}>{userStats?.total_points ?? user?.total_points ?? 0}</Text>
+              <Text style={[styles.statLabel, { color: palette.textMuted }]}>Puntos Totales</Text>
             </View>
-            <View style={styles.statCard}>
-              <View style={styles.statIconContainer}>
-                <Ionicons name="analytics" size={24} color={COLORS.success} />
+            <View style={[styles.statCard, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: palette.iconBg }]}>
+                <Ionicons name="analytics" size={24} color={palette.primary} />
               </View>
-              <Text style={[styles.statValue, { color: COLORS.success }]}>
-                {user?.correct_predictions || 0}
+              <Text style={[styles.statValue, { color: palette.primary }]}>
+                {userStats?.correct_predictions ?? user?.correct_predictions ?? 0}
               </Text>
-              <Text style={styles.statLabel}>Aciertos</Text>
+              <Text style={[styles.statLabel, { color: palette.textMuted }]}>Aciertos</Text>
             </View>
           </View>
           <View style={styles.statsSecondRow}>
-            <View style={styles.statCard}>
-              <View style={styles.statIconContainer}>
-                <Ionicons name="football" size={24} color="#6b7280" />
+            <View style={[styles.statCard, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: palette.iconBg }]}>
+                <Ionicons name="football" size={24} color={palette.textMuted} />
               </View>
-              <Text style={styles.statValue}>{user?.total_predictions || 0}</Text>
-              <Text style={styles.statLabel}>Predicciones</Text>
+              <Text style={[styles.statValue, { color: palette.text }]}>{userStats?.total_predictions ?? user?.total_predictions ?? 0}</Text>
+              <Text style={[styles.statLabel, { color: palette.textMuted }]}>Predicciones</Text>
             </View>
-            <View style={styles.statCard}>
-              <View style={styles.statIconContainer}>
-                <Ionicons name="trending-up" size={24} color="#6b7280" />
+            <View style={[styles.statCard, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: palette.iconBg }]}>
+                <Ionicons name="trending-up" size={24} color={palette.textMuted} />
               </View>
-              <Text style={styles.statValue}>
-                {user?.total_predictions > 0 
-                  ? Math.round((user?.correct_predictions / user?.total_predictions) * 100) 
-                  : 0}%
+              <Text style={[styles.statValue, { color: palette.text }]}>
+                {userStats?.processed_predictions > 0
+                  ? Math.round(userStats.accuracy || 0)
+                  : user?.total_predictions > 0
+                    ? Math.round((user?.correct_predictions / user?.total_predictions) * 100)
+                    : 0}%
               </Text>
-              <Text style={styles.statLabel}>Efectividad</Text>
+              <Text style={[styles.statLabel, { color: palette.textMuted }]}>Efectividad</Text>
             </View>
           </View>
         </View>
 
         {/* Profile Settings */}
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>PERFIL</Text>
-          <View style={styles.card}>
+          <Text style={[styles.sectionHeader, { color: palette.textMuted }]}>PERFIL</Text>
+          <View style={[styles.card, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
             <SettingRow
               icon="person"
               title="Editar Perfil"
@@ -402,44 +413,19 @@ const ProfileScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Notifications */}
+        {/* Notificaciones — oculto hasta integrar push/email
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>NOTIFICACIONES</Text>
-          <View style={styles.card}>
-            <SettingRow
-              icon="notifications"
-              title="Notificaciones Push"
-              subtitle="Alertas de partidos y resultados"
-              rightElement={
-                <Switch
-                  value={pushNotifications}
-                  onValueChange={setPushNotifications}
-                  trackColor={{ false: '#374151', true: COLORS.primary }}
-                  thumbColor="#ffffff"
-                />
-              }
-            />
-            <SettingRow
-              icon="at"
-              title="Actualizaciones por Email"
-              subtitle="Resumen semanal de predicciones"
-              rightElement={
-                <Switch
-                  value={emailUpdates}
-                  onValueChange={setEmailUpdates}
-                  trackColor={{ false: '#374151', true: COLORS.primary }}
-                  thumbColor="#ffffff"
-                />
-              }
-              showBorder={false}
-            />
+          <Text style={[styles.sectionHeader, { color: palette.textMuted }]}>NOTIFICACIONES</Text>
+          <View style={[styles.card, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
+            ...
           </View>
         </View>
+        */}
 
         {/* Security */}
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>SEGURIDAD</Text>
-          <View style={styles.card}>
+          <Text style={[styles.sectionHeader, { color: palette.textMuted }]}>SEGURIDAD</Text>
+          <View style={[styles.card, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
             <SettingRow
               icon="lock-closed"
               title="Cambiar Contraseña"
@@ -452,23 +438,22 @@ const ProfileScreen = ({ navigation }) => {
 
         {/* Preferences */}
         <View style={styles.section}>
-          <Text style={styles.sectionHeader}>PREFERENCIAS</Text>
-          <View style={styles.card}>
+          <Text style={[styles.sectionHeader, { color: palette.textMuted }]}>PREFERENCIAS</Text>
+          <View style={[styles.card, { backgroundColor: palette.cardBg, borderColor: palette.cardBorder }]}>
             <SettingRow
               icon="language"
               title="Idioma"
               subtitle="Español (ES)"
-              // onPress={() => Alert.alert('En desarrollo', 'Función disponible próximamente')}
             />
             <SettingRow
               icon="moon"
               title="Modo Oscuro"
-              subtitle="Activado"
+              subtitle={isDark ? 'Activado' : 'Desactivado'}
               rightElement={
                 <Switch
-                  value={darkMode}
+                  value={isDark}
                   onValueChange={setDarkMode}
-                  trackColor={{ false: '#374151', true: COLORS.primary }}
+                  trackColor={{ false: palette.switchTrackOff, true: palette.accent }}
                   thumbColor="#ffffff"
                 />
               }
@@ -483,7 +468,7 @@ const ProfileScreen = ({ navigation }) => {
         </TouchableOpacity>
 
         {/* App Version */}
-        <Text style={styles.appVersion}>MASTERSPORT v1.0.0</Text>
+        <Text style={[styles.appVersion, { color: palette.textMuted }]}>MASTERSPORT v1.0.0</Text>
       </ScrollView>
 
       {/* Logout Confirmation Modal */}

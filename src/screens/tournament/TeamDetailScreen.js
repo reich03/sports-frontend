@@ -1,11 +1,12 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Animated
+  Animated, StatusBar
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 const FLAGS = {
   'México': '🇲🇽', 'Sudáfrica': '🇿🇦', 'Corea del Sur': '🇰🇷', 'República Checa': '🇨🇿',
@@ -41,6 +42,9 @@ const CONFEDERATIONS = {
 export default function TeamDetailScreen({ navigation, route }) {
   const { team } = route.params;
   const insets = useSafeAreaInsets();
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(30)).current;
 
@@ -56,10 +60,11 @@ export default function TeamDetailScreen({ navigation, route }) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
+      <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={24} color={COLORS.white} />
+          <Ionicons name="arrow-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>{team.name}</Text>
         <View style={{ width: 40 }} />
@@ -75,11 +80,11 @@ export default function TeamDetailScreen({ navigation, route }) {
           )}
           <View style={styles.heroRow}>
             <View style={styles.heroBadge}>
-              <Ionicons name="globe-outline" size={13} color={COLORS.primary} />
+              <Ionicons name="globe-outline" size={13} color={C.primary} />
               <Text style={styles.heroBadgeText}>{team.country}</Text>
             </View>
             <View style={styles.heroBadge}>
-              <Ionicons name="football-outline" size={13} color={COLORS.primary} />
+              <Ionicons name="football-outline" size={13} color={C.primary} />
               <Text style={styles.heroBadgeText}>{confederation}</Text>
             </View>
           </View>
@@ -115,35 +120,35 @@ export default function TeamDetailScreen({ navigation, route }) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.backgroundDark },
+const createStyles = (C) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.background },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 14 },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
-  headerTitle: { fontSize: 17, fontWeight: 'bold', color: COLORS.white, flex: 1, textAlign: 'center' },
+  headerTitle: { fontSize: 17, fontWeight: 'bold', color: C.text, flex: 1, textAlign: 'center' },
   heroCard: {
-    backgroundColor: COLORS.cardDark,
+    backgroundColor: C.cardDark,
     borderRadius: 20,
     padding: 28,
     alignItems: 'center',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: COLORS.primary + '22',
+    borderColor: C.primary + '22',
   },
   heroFlag: { fontSize: 72, marginBottom: 12 },
-  heroName: { color: COLORS.white, fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 4 },
-  heroShort: { color: COLORS.textSecondary, fontSize: 14, marginBottom: 16 },
+  heroName: { color: C.text, fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 4 },
+  heroShort: { color: C.textSecondary, fontSize: 14, marginBottom: 16 },
   heroRow: { flexDirection: 'row', gap: 10, marginTop: 8 },
-  heroBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.primary + '18', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
-  heroBadgeText: { color: COLORS.primary, fontSize: 12, fontWeight: '600' },
-  playersCard: { backgroundColor: COLORS.cardDark, borderRadius: 16, padding: 16 },
+  heroBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.primary + '18', paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20 },
+  heroBadgeText: { color: C.primary, fontSize: 12, fontWeight: '600' },
+  playersCard: { backgroundColor: C.cardDark, borderRadius: 16, padding: 16 },
   playersHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  playersTitle: { color: COLORS.white, fontWeight: 'bold', fontSize: 15 },
-  soonBadge: { backgroundColor: COLORS.border, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
-  soonText: { color: COLORS.textSecondary, fontSize: 11 },
-  playersHint: { color: COLORS.textSecondary, fontSize: 12, marginBottom: 16, lineHeight: 18 },
-  playerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderTopWidth: 1, borderTopColor: COLORS.border, gap: 12 },
-  playerNumBg: { width: 34, height: 34, borderRadius: 8, backgroundColor: COLORS.backgroundDark, justifyContent: 'center', alignItems: 'center' },
-  playerNum: { color: COLORS.textSecondary, fontSize: 13, fontWeight: 'bold' },
+  playersTitle: { color: C.text, fontWeight: 'bold', fontSize: 15 },
+  soonBadge: { backgroundColor: C.border, paddingHorizontal: 10, paddingVertical: 3, borderRadius: 20 },
+  soonText: { color: C.textSecondary, fontSize: 11 },
+  playersHint: { color: C.textSecondary, fontSize: 12, marginBottom: 16, lineHeight: 18 },
+  playerRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderTopWidth: 1, borderTopColor: C.border, gap: 12 },
+  playerNumBg: { width: 34, height: 34, borderRadius: 8, backgroundColor: C.background, justifyContent: 'center', alignItems: 'center' },
+  playerNum: { color: C.textSecondary, fontSize: 13, fontWeight: 'bold' },
   playerInfo: { flex: 1 },
-  playerSkeleton: { height: 12, backgroundColor: COLORS.border, borderRadius: 6 },
+  playerSkeleton: { height: 12, backgroundColor: C.border, borderRadius: 6 },
 });

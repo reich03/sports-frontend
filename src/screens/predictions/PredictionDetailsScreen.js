@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { COLORS, FONTS, SIZES } from '../../constants/theme';
 import { predictionService } from '../../services';
+import { arePredictionsClosed } from '../../utils/predictions';
 
 const PredictionDetailsScreen = ({ route, navigation }) => {
   const { predictionId } = route.params;
@@ -234,20 +235,30 @@ const PredictionDetailsScreen = ({ route, navigation }) => {
             <Text style={styles.summaryTitle}>📊 Desglose de Puntos</Text>
             {sport.prediction_type === 'score' ? (
               <View>
-                {prediction.home_score === match.home_score && 
+                {prediction.home_score === match.home_score &&
                  prediction.away_score === match.away_score ? (
                   <Text style={styles.summaryText}>
                     ✅ Resultado exacto ({sport.scoring_rules.exact_score} pts)
                   </Text>
                 ) : (
                   <>
-                    <Text style={styles.summaryText}>
-                      ✅ Ganador correcto ({sport.scoring_rules.correct_winner} pts)
-                    </Text>
-                    {Math.abs(prediction.home_score - prediction.away_score) === 
-                     Math.abs(match.home_score - match.away_score) && (
+                    {(() => {
+                      const predR = prediction.home_score > prediction.away_score ? 'home' : (prediction.home_score < prediction.away_score ? 'away' : 'draw');
+                      const actR = match.home_score > match.away_score ? 'home' : (match.home_score < match.away_score ? 'away' : 'draw');
+                      return predR === actR ? (
+                        <Text style={styles.summaryText}>
+                          ✅ Ganador / empate ({sport.scoring_rules.correct_winner || sport.scoring_rules.correct_draw} pts)
+                        </Text>
+                      ) : null;
+                    })()}
+                    {prediction.home_score === match.home_score && (
                       <Text style={styles.summaryText}>
-                        ✅ Diferencia exacta (+{sport.scoring_rules.exact_difference} pts)
+                        ✅ Goles local (+{sport.scoring_rules.home_goal_bonus || 2} pts)
+                      </Text>
+                    )}
+                    {prediction.away_score === match.away_score && (
+                      <Text style={styles.summaryText}>
+                        ✅ Goles visitante (+{sport.scoring_rules.away_goal_bonus || 2} pts)
                       </Text>
                     )}
                   </>
@@ -261,8 +272,8 @@ const PredictionDetailsScreen = ({ route, navigation }) => {
           </View>
         )}
 
-        {/* Edit Button (only if not processed) */}
-        {!isProcessed && !match.predictions_locked && (
+        {/* Edit Button (only if not processed and before match time) */}
+        {!isProcessed && !arePredictionsClosed(match) && (
           <TouchableOpacity
             style={styles.editButton}
             onPress={() => navigation.navigate('CreatePrediction', { matchId: match.id })}

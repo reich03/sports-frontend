@@ -1,15 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Animated, Image
+  ActivityIndicator, RefreshControl, Animated, TextInput, StatusBar
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { COLORS, SIZES } from '../../constants/theme';
 import tournamentService from '../../services/tournament.service';
-
-const WC_FLAG = '🏆';
+import { SCORE_RULES_DISPLAY } from '../../constants/scoring';
+import StatusModal from '../../components/StatusModal';
+import { useTheme } from '../../context/ThemeContext';
+import { useThemeColors } from '../../hooks/useThemeColors';
 
 // Cuenta regresiva hasta el inicio del Mundial
 const useCountdown = (targetDate) => {
@@ -34,7 +35,7 @@ const useCountdown = (targetDate) => {
   return timeLeft;
 };
 
-const CountdownUnit = ({ value, label }) => (
+const CountdownUnit = ({ value, label, styles }) => (
   <View style={styles.countUnit}>
     <Text style={styles.countValue}>{String(value).padStart(2, '0')}</Text>
     <Text style={styles.countLabel}>{label}</Text>
@@ -44,14 +45,26 @@ const CountdownUnit = ({ value, label }) => (
 export default function TournamentHomeScreen({ navigation, route }) {
   const { tournamentId } = route.params || {};
   const insets = useSafeAreaInsets();
+  const C = useThemeColors();
+  const { palette } = useTheme();
+  const styles = useMemo(() => createStyles(C), [C]);
+
   const [tournament, setTournament] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('matches');
+  const [joinCode, setJoinCode] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [statusModal, setStatusModal] = useState({
+    visible: false,
+    type: 'error',
+    title: '',
+    message: '',
+  });
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  const timeLeft = useCountdown('2026-06-11T19:00:00-05:00');
+  const timeLeft = useCountdown(tournament?.start_date || new Date().toISOString());
 
   useEffect(() => {
     Animated.loop(
@@ -84,14 +97,66 @@ export default function TournamentHomeScreen({ navigation, route }) {
 
   useEffect(() => { loadTournament(); }, [loadTournament]);
 
+  useEffect(() => {
+    if (tournament?.user_joined && tournamentId) {
+      navigation.replace('TournamentMatches', { tournamentId, filter: 'upcoming' });
+    }
+  }, [tournament?.user_joined, tournamentId, navigation]);
+
   const onRefresh = () => { setRefreshing(true); loadTournament(); };
+
+  const showModal = (type, title, message) => {
+    setStatusModal({ visible: true, type, title, message });
+  };
+
+  const handleJoinPublic = async () => {
+    if (!tournament) return;
+    setJoining(true);
+    try {
+      await tournamentService.joinTournament(tournament.id);
+      navigation.replace('TournamentMatches', { tournamentId: tournament.id, filter: 'upcoming' });
+    } catch (err) {
+      showModal('error', 'Error', err.response?.data?.message || 'No se pudo unir al torneo.');
+    } finally {
+      setJoining(false);
+    }
+  };
+
+  const handleJoinPrivate = async () => {
+    if (!joinCode.trim()) {
+      showModal('warning', 'Código requerido', 'Ingresa el código que te compartió el organizador.');
+      return;
+    }
+    setJoining(true);
+    try {
+      const res = await tournamentService.joinByCode(joinCode.trim().toUpperCase());
+      const joinedId = res.data.data?.participant?.tournament_id || tournament?.id;
+      if (joinedId) {
+        navigation.replace('TournamentMatches', { tournamentId: joinedId, filter: 'upcoming' });
+      } else {
+        await loadTournament();
+      }
+    } catch (err) {
+      showModal(
+        'error',
+        'Código inválido',
+        err.response?.data?.message || 'El código no es correcto. Verifica e intenta de nuevo.'
+      );
+    } finally {
+      setJoining(false);
+    }
+  };
 
   const tabs = [
     { key: 'matches', label: 'Partidos', icon: 'football' },
     { key: 'results', label: 'Resultados', icon: 'checkmark-circle' },
-    { key: 'groups', label: 'Grupos', icon: 'grid' },
+    ...(tournament?.league?.name?.toLowerCase().includes('world cup') || tournament?.name?.toLowerCase().includes('mundial')
+      ? [{ key: 'groups', label: 'Grupos', icon: 'grid' }]
+      : []),
     { key: 'table', label: 'Tabla', icon: 'podium' },
-    { key: 'specials', label: 'Menciones', icon: 'star' },
+    ...(tournament?.special_predictions_enabled !== false
+      ? [{ key: 'specials', label: 'Menciones', icon: 'star' }]
+      : []),
   ];
 
   const navigateToTab = (tabKey) => {
@@ -119,39 +184,67 @@ export default function TournamentHomeScreen({ navigation, route }) {
   if (loading) {
     return (
       <View style={[styles.center, { paddingTop: insets.top }]}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
+        <ActivityIndicator size="large" color={C.accent} />
       </View>
     );
   }
 
-  const isStarted = tournament?.status !== 'upcoming';
+  if (!tournament) {
+    return (
+      <View style={[styles.center, { paddingTop: insets.top }]}>
+        <Text style={{ color: C.textSecondary, marginBottom: 16 }}>Torneo no encontrado</Text>
+        <TouchableOpacity onPress={() => navigation.navigate('TournamentList')}>
+          <Text style={{ color: C.primary, fontWeight: '700' }}>Ver torneos disponibles</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const isStarted = tournament.status !== 'upcoming';
+  const startDate = tournament.start_date ? new Date(tournament.start_date) : null;
+  const endDate = tournament.end_date ? new Date(tournament.end_date) : null;
+  const dateRange = startDate && endDate
+    ? `${startDate.toLocaleDateString('es', { day: 'numeric', month: 'short' })} – ${endDate.toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' })}`
+    : null;
 
   return (
+    <>
+    <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
     <Animated.ScrollView
       style={[styles.container, { paddingTop: insets.top, opacity: fadeAnim }]}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.primary} />}
+      contentContainerStyle={{ paddingBottom: insets.bottom + 48 }}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={C.accent} />}
     >
       {/* Header con gradiente */}
       <LinearGradient
-        colors={['#0f3320', '#0a1a0f', 'transparent']}
+        colors={C.isDark ? ['#0f3320', '#0a1a0f', 'transparent'] : [C.gradientHero[0], C.cardHighlight, 'transparent']}
         style={styles.headerGradient}
       >
         <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Ionicons name="arrow-back" size={22} color={C.text} />
+          </TouchableOpacity>
           <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
-            <Text style={styles.trophy}>{WC_FLAG}</Text>
+            <Text style={styles.trophy}>🏆</Text>
           </Animated.View>
-          <Text style={styles.title}>FIFA WORLD CUP 2026</Text>
-          <Text style={styles.subtitle}>🇲🇽 México  •  🇺🇸 EE.UU.  •  🇨🇦 Canadá</Text>
-          <View style={styles.badge}>
-            <Text style={styles.badgeText}>11 Jun – 19 Jul 2026</Text>
-          </View>
+          <Text style={styles.title}>{tournament.name?.toUpperCase()}</Text>
+          {tournament.description ? (
+            <Text style={styles.subtitle}>{tournament.description}</Text>
+          ) : tournament.league?.name ? (
+            <Text style={styles.subtitle}>{tournament.league.name}</Text>
+          ) : null}
+          {dateRange && (
+            <View style={styles.badge}>
+              <Text style={styles.badgeText}>{dateRange}</Text>
+            </View>
+          )}
         </View>
       </LinearGradient>
 
       {/* Cuenta regresiva */}
       {!isStarted && (
         <LinearGradient
-          colors={[COLORS.primary + '22', COLORS.primary + '08']}
+          colors={[C.primary + '22', C.primary + '08']}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
           style={styles.countdownCard}
@@ -159,34 +252,22 @@ export default function TournamentHomeScreen({ navigation, route }) {
           <View style={styles.countdownAccent} />
           <Text style={styles.countdownTitle}>⏱  COMIENZA EN</Text>
           <View style={styles.countdownRow}>
-            <CountdownUnit value={timeLeft.days} label="días" />
+            <CountdownUnit value={timeLeft.days} label="días" styles={styles} />
             <Text style={styles.countSep}>:</Text>
-            <CountdownUnit value={timeLeft.hours} label="horas" />
+            <CountdownUnit value={timeLeft.hours} label="horas" styles={styles} />
             <Text style={styles.countSep}>:</Text>
-            <CountdownUnit value={timeLeft.minutes} label="min" />
+            <CountdownUnit value={timeLeft.minutes} label="min" styles={styles} />
             <Text style={styles.countSep}>:</Text>
-            <CountdownUnit value={timeLeft.seconds} label="seg" />
+            <CountdownUnit value={timeLeft.seconds} label="seg" styles={styles} />
           </View>
         </LinearGradient>
-      )}
-
-      {/* Banner código privado */}
-      {tournament?.type === 'private' && tournament?.access_code && (
-        <View style={styles.privateCodeBanner}>
-          <Ionicons name="lock-closed" size={18} color="#ff9900" />
-          <View style={{ flex: 1 }}>
-            <Text style={styles.privateCodeLabel}>Polla privada · Código de acceso</Text>
-            <Text style={styles.privateCodeValue}>{tournament.access_code}</Text>
-            <Text style={styles.privateCodeHint}>Comparte este código por WhatsApp para invitar participantes</Text>
-          </View>
-        </View>
       )}
 
       {/* Info del torneo */}
       {tournament && (
         <View style={styles.infoCard}>
           <View style={styles.infoRow}>
-            <Ionicons name="people" size={20} color={COLORS.primary} />
+            <Ionicons name="people" size={20} color={C.primary} />
             <Text style={styles.infoText}>{tournament.total_participants || 0} participantes</Text>
             {tournament.type === 'private' && (
               <View style={[styles.typeBadge, { backgroundColor: '#ff990022' }]}>
@@ -196,15 +277,47 @@ export default function TournamentHomeScreen({ navigation, route }) {
           </View>
           {tournament.user_joined ? (
             <View style={styles.joinedBadge}>
-              <Ionicons name="checkmark-circle" size={16} color={COLORS.primary} />
+              <Ionicons name="checkmark-circle" size={16} color={C.primary} />
               <Text style={styles.joinedText}>Ya estás participando</Text>
+            </View>
+          ) : tournament.type === 'private' ? (
+            <View style={styles.privateJoinBlock}>
+              <Text style={styles.privateJoinHint}>
+                Polla privada. Pide el código al organizador para unirte.
+              </Text>
+              <TextInput
+                style={styles.codeInput}
+                value={joinCode}
+                onChangeText={(t) => setJoinCode(t.toUpperCase())}
+                placeholder="Ej: MASTERSPORT2026"
+                placeholderTextColor={C.textSecondary}
+                maxLength={16}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+              <TouchableOpacity
+                style={[styles.joinBtn, joining && { opacity: 0.6 }]}
+                onPress={handleJoinPrivate}
+                disabled={joining}
+              >
+                {joining ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <Text style={styles.joinBtnText}>Unirme con código</Text>
+                )}
+              </TouchableOpacity>
             </View>
           ) : (
             <TouchableOpacity
-              style={styles.joinBtn}
-              onPress={() => navigation.navigate('TournamentJoin', { tournaments: [] })}
+              style={[styles.joinBtn, joining && { opacity: 0.6 }]}
+              onPress={handleJoinPublic}
+              disabled={joining}
             >
-              <Text style={styles.joinBtnText}>¡Unirme al Mundial!</Text>
+              {joining ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
+                <Text style={styles.joinBtnText}>Unirme al torneo</Text>
+              )}
             </TouchableOpacity>
           )}
           {tournament.user_stats && (
@@ -229,24 +342,22 @@ export default function TournamentHomeScreen({ navigation, route }) {
       {/* Sistema de puntos */}
       <View style={styles.rulesCard}>
         <Text style={styles.rulesTitle}>Sistema de Puntos</Text>
-        {[
-          { label: 'Resultado exacto', pts: '10 pts', accent: COLORS.primary },
-          { label: 'Ganador + goles local', pts: '7 pts', accent: COLORS.primary },
-          { label: 'Ganador + goles visitante', pts: '7 pts', accent: COLORS.primary },
-          { label: 'Solo ganador / empate', pts: '5 pts', accent: COLORS.primary },
-          { label: 'Sin acierto', pts: '0 pts', accent: COLORS.error },
-        ].map((r, i) => (
+        {SCORE_RULES_DISPLAY.map((r, i) => (
           <View key={i} style={styles.ruleRow}>
-            <View style={[styles.ruleDot, { backgroundColor: r.accent }]} />
+            <View style={[styles.ruleDot, { backgroundColor: r.accent === 'error' ? C.error : C.primary }]} />
             <Text style={styles.ruleLabel}>{r.label}</Text>
-            <Text style={[styles.rulePts, { color: r.accent }]}>{r.pts}</Text>
+            <Text style={[styles.rulePts, { color: r.accent === 'error' ? C.error : C.primary }]}>{r.pts}</Text>
           </View>
         ))}
-        <View style={[styles.ruleRow, styles.ruleSeparator]}>
-          <View style={[styles.ruleDot, { backgroundColor: '#ff9900' }]} />
-          <Text style={styles.ruleLabel}>Menciones especiales (podio)</Text>
-          <Text style={[styles.rulePts, { color: '#ff9900' }]}>Bonus</Text>
-        </View>
+        {tournament.special_predictions_enabled !== false && (
+          <View style={[styles.ruleRow, styles.ruleSeparator]}>
+            <View style={[styles.ruleDot, { backgroundColor: '#ff9900' }]} />
+            <Text style={styles.ruleLabel}>Menciones especiales (podio)</Text>
+            <Text style={[styles.rulePts, { color: '#ff9900' }]}>
+              {tournament.champion_points}/{tournament.runner_up_points}/{tournament.third_place_points} pts
+            </Text>
+          </View>
+        )}
       </View>
 
       {/* Accesos rápidos */}
@@ -263,103 +374,102 @@ export default function TournamentHomeScreen({ navigation, route }) {
             activeOpacity={0.75}
           >
             <LinearGradient
-              colors={[COLORS.primary + '28', COLORS.primary + '0a']}
+              colors={[C.primary + '28', C.primary + '0a']}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
               style={styles.tabPill}
             >
               <View style={styles.tabPillIcon}>
-                <Ionicons name={tab.icon} size={18} color={COLORS.primary} />
+                <Ionicons name={tab.icon} size={18} color={C.primary} />
               </View>
               <Text style={styles.tabPillLabel} numberOfLines={1}>{tab.label}</Text>
             </LinearGradient>
           </TouchableOpacity>
         ))}
       </ScrollView>
-
-      {/* Polla privada */}
-      <TouchableOpacity
-        style={styles.privateCard}
-        onPress={() => navigation.navigate('TournamentJoin', { tab: 'private' })}
-      >
-        <Ionicons name="lock-closed" size={22} color={COLORS.warning} />
-        <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={styles.privateTitle}>Polla Privada</Text>
-          <Text style={styles.privateSubtitle}>Ingresa un código de acceso para unirte</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color={COLORS.textSecondary} />
-      </TouchableOpacity>
-
-      <View style={{ height: 32 }} />
     </Animated.ScrollView>
+
+    <StatusModal
+      visible={statusModal.visible}
+      type={statusModal.type}
+      title={statusModal.title}
+      message={statusModal.message}
+      primaryButtonText="Entendido"
+      onPrimaryPress={() => setStatusModal((prev) => ({ ...prev, visible: false }))}
+      onClose={() => setStatusModal((prev) => ({ ...prev, visible: false }))}
+    />
+    </>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: COLORS.backgroundDark },
-  center: { flex: 1, backgroundColor: COLORS.backgroundDark, justifyContent: 'center', alignItems: 'center' },
+const createStyles = (C) => StyleSheet.create({
+  container: { flex: 1, backgroundColor: C.background },
+  center: { flex: 1, backgroundColor: C.background, justifyContent: 'center', alignItems: 'center' },
   headerGradient: { paddingBottom: 4 },
   header: { alignItems: 'center', paddingVertical: 24, paddingHorizontal: 16 },
+  backBtn: { position: 'absolute', left: 16, top: 24, padding: 4, zIndex: 1 },
   trophy: { fontSize: 72, marginBottom: 10 },
-  title: { fontSize: 22, fontWeight: 'bold', color: COLORS.white, letterSpacing: 2, textAlign: 'center' },
-  subtitle: { fontSize: 13, color: COLORS.textSecondary, marginTop: 6 },
-  badge: { marginTop: 10, backgroundColor: COLORS.primary + '28', paddingHorizontal: 16, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: COLORS.primary + '44' },
-  badgeText: { color: COLORS.primary, fontSize: 13, fontWeight: '700' },
+  title: { fontSize: 22, fontWeight: 'bold', color: C.text, letterSpacing: 2, textAlign: 'center' },
+  subtitle: { fontSize: 13, color: C.textSecondary, marginTop: 6 },
+  badge: { marginTop: 10, backgroundColor: C.primary + '28', paddingHorizontal: 16, paddingVertical: 5, borderRadius: 20, borderWidth: 1, borderColor: C.primary + '44' },
+  badgeText: { color: C.primary, fontSize: 13, fontWeight: '700' },
 
-  countdownCard: { marginHorizontal: 16, marginBottom: 16, borderRadius: 18, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: COLORS.primary + '33', overflow: 'hidden' },
-  countdownAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: 2, backgroundColor: COLORS.primary },
-  countdownTitle: { color: COLORS.primary, fontSize: 11, marginBottom: 14, letterSpacing: 2, fontWeight: '700' },
+  countdownCard: { marginHorizontal: 16, marginBottom: 16, borderRadius: 18, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: C.primary + '33', overflow: 'hidden' },
+  countdownAccent: { position: 'absolute', top: 0, left: 0, right: 0, height: 2, backgroundColor: C.primary },
+  countdownTitle: { color: C.primary, fontSize: 11, marginBottom: 14, letterSpacing: 2, fontWeight: '700' },
   countdownRow: { flexDirection: 'row', alignItems: 'center' },
-  countUnit: { alignItems: 'center', minWidth: 60, backgroundColor: COLORS.cardDark, borderRadius: 12, paddingVertical: 8 },
-  countValue: { fontSize: 34, fontWeight: 'bold', color: COLORS.primary },
-  countLabel: { fontSize: 9, color: COLORS.textSecondary, marginTop: 3, textTransform: 'uppercase', letterSpacing: 1 },
-  countSep: { fontSize: 28, color: COLORS.primary, fontWeight: 'bold', marginBottom: 16, marginHorizontal: 6 },
+  countUnit: { alignItems: 'center', minWidth: 60, backgroundColor: C.cardDark, borderRadius: 12, paddingVertical: 8 },
+  countValue: { fontSize: 34, fontWeight: 'bold', color: C.primary },
+  countLabel: { fontSize: 9, color: C.textSecondary, marginTop: 3, textTransform: 'uppercase', letterSpacing: 1 },
+  countSep: { fontSize: 28, color: C.primary, fontWeight: 'bold', marginBottom: 16, marginHorizontal: 6 },
 
-  privateCodeBanner: { marginHorizontal: 16, marginBottom: 12, backgroundColor: '#ff990015', borderRadius: 14, padding: 14, flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderWidth: 1, borderColor: '#ff990044' },
-  privateCodeLabel: { color: '#ff9900', fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
-  privateCodeValue: { color: COLORS.white, fontSize: 26, fontWeight: 'bold', letterSpacing: 4, marginVertical: 2 },
-  privateCodeHint: { color: COLORS.textSecondary, fontSize: 11, lineHeight: 16 },
-
-  infoCard: { marginHorizontal: 16, marginBottom: 16, backgroundColor: COLORS.cardDark, borderRadius: 16, padding: 16 },
+  infoCard: { marginHorizontal: 16, marginBottom: 16, backgroundColor: C.cardDark, borderRadius: 16, padding: 16 },
   infoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
-  infoText: { color: COLORS.textSecondary, marginLeft: 8, fontSize: 14, flex: 1 },
+  infoText: { color: C.textSecondary, marginLeft: 8, fontSize: 14, flex: 1 },
   typeBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
   typeText: { fontSize: 11, fontWeight: '700' },
-  joinedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.primary + '22', padding: 10, borderRadius: 10 },
-  joinedText: { color: COLORS.primary, marginLeft: 8, fontWeight: '600', fontSize: 14 },
-  joinBtn: { backgroundColor: COLORS.primary, padding: 12, borderRadius: 10, alignItems: 'center' },
-  joinBtnText: { color: COLORS.backgroundDark, fontWeight: 'bold', fontSize: 15 },
+  joinedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.primary + '22', padding: 10, borderRadius: 10 },
+  joinedText: { color: C.primary, marginLeft: 8, fontWeight: '600', fontSize: 14 },
+  joinBtn: { backgroundColor: C.accent, padding: 12, borderRadius: 10, alignItems: 'center' },
+  joinBtnText: { color: '#ffffff', fontWeight: 'bold', fontSize: 15 },
+  privateJoinBlock: { gap: 10 },
+  privateJoinHint: { fontSize: 13, color: C.textSecondary, lineHeight: 18 },
+  codeInput: {
+    backgroundColor: C.background,
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 18,
+    fontWeight: '700',
+    color: C.text,
+    textAlign: 'center',
+    letterSpacing: 2,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
   statsRow: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 16 },
   statItem: { alignItems: 'center' },
-  statValue: { fontSize: 22, fontWeight: 'bold', color: COLORS.primary },
-  statLabel: { fontSize: 11, color: COLORS.textSecondary, marginTop: 2 },
+  statValue: { fontSize: 22, fontWeight: 'bold', color: C.primary },
+  statLabel: { fontSize: 11, color: C.textSecondary, marginTop: 2 },
 
-  rulesCard: { marginHorizontal: 16, marginBottom: 16, backgroundColor: COLORS.cardDark, borderRadius: 16, padding: 16 },
-  rulesTitle: { color: COLORS.white, fontWeight: 'bold', fontSize: 15, marginBottom: 12 },
+  rulesCard: { marginHorizontal: 16, marginBottom: 16, backgroundColor: C.cardDark, borderRadius: 16, padding: 16 },
+  rulesTitle: { color: C.text, fontWeight: 'bold', fontSize: 15, marginBottom: 12 },
   ruleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10, gap: 10 },
   ruleDot: { width: 6, height: 6, borderRadius: 3 },
-  ruleLabel: { flex: 1, color: COLORS.textSecondary, fontSize: 13 },
+  ruleLabel: { flex: 1, color: C.textSecondary, fontSize: 13 },
   rulePts: { fontWeight: 'bold', fontSize: 13 },
-  ruleSeparator: { borderTopWidth: 1, borderTopColor: COLORS.border, paddingTop: 10, marginTop: 4 },
+  ruleSeparator: { borderTopWidth: 1, borderTopColor: C.border, paddingTop: 10, marginTop: 4 },
 
-  sectionTitle: { color: COLORS.textSecondary, fontSize: 11, letterSpacing: 1.5, marginHorizontal: 16, marginBottom: 10, fontWeight: '700' },
-  tabRow: { paddingHorizontal: 16, paddingBottom: 16, gap: 10, flexDirection: 'row', alignItems: 'center' },
+  sectionTitle: { color: C.textSecondary, fontSize: 11, letterSpacing: 1.5, marginHorizontal: 16, marginBottom: 10, fontWeight: '700' },
+  tabRow: { paddingHorizontal: 16, paddingBottom: 8, gap: 10, flexDirection: 'row', alignItems: 'center' },
   tabPill: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     paddingHorizontal: 14, paddingVertical: 12,
     borderRadius: 14,
-    borderWidth: 1, borderColor: COLORS.primary + '28',
+    borderWidth: 1, borderColor: C.primary + '28',
   },
   tabPillIcon: {
     width: 34, height: 34, borderRadius: 17,
-    backgroundColor: COLORS.primary + '20',
+    backgroundColor: C.primary + '20',
     justifyContent: 'center', alignItems: 'center',
   },
-  tabPillLabel: { color: COLORS.white, fontSize: 13, fontWeight: '700' },
-
-  privateCard: {
-    marginHorizontal: 16, backgroundColor: COLORS.cardDark, borderRadius: 16,
-    padding: 16, flexDirection: 'row', alignItems: 'center', marginBottom: 16
-  },
-  privateTitle: { color: COLORS.white, fontWeight: '600', fontSize: 14 },
-  privateSubtitle: { color: COLORS.textSecondary, fontSize: 12, marginTop: 2 },
+  tabPillLabel: { color: C.text, fontSize: 13, fontWeight: '700' },
 });

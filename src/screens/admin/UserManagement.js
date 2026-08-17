@@ -57,6 +57,9 @@ const UserManagement = ({ navigation }) => {
     // Selected avatar image
     const [selectedImage, setSelectedImage] = useState(null);
     const [uploadingImage, setUploadingImage] = useState(false);
+    const [savingUser, setSavingUser] = useState(false);
+
+    const isUserActive = (user) => user?.is_active !== false && user?.isActive !== false;
 
     // Stats
     const [stats, setStats] = useState({
@@ -108,7 +111,7 @@ const UserManagement = ({ navigation }) => {
             return createdAt >= todayStart;
         }).length;
 
-        const activeUsers = userData.filter(user => user.isActive !== false).length;
+        const activeUsers = userData.filter(user => isUserActive(user)).length;
         console.log(`📊 Stats calculated - Total: ${userData.length}, New Today: ${newToday}, Active: ${activeUsers}`);
 
         setStats({
@@ -134,9 +137,9 @@ const UserManagement = ({ navigation }) => {
 
         // Apply status filter
         if (activeFilter === 'active') {
-            filtered = filtered.filter(user => user.isActive !== false);
+            filtered = filtered.filter(user => isUserActive(user));
         } else if (activeFilter === 'inactive') {
-            filtered = filtered.filter(user => user.isActive === false);
+            filtered = filtered.filter(user => !isUserActive(user));
         } else if (activeFilter === 'admin') {
             filtered = filtered.filter(user => user.role === 'admin');
         }
@@ -156,9 +159,20 @@ const UserManagement = ({ navigation }) => {
                 return;
             }
 
+            if (formData.password.trim().length < 8) {
+                setStatusModal({
+                    visible: true,
+                    type: 'warning',
+                    title: 'Contraseña inválida',
+                    message: 'La contraseña debe tener al menos 8 caracteres.',
+                });
+                return;
+            }
+
+            setSavingUser(true);
             console.log('➕ Creating user:', formData);
 
-            await userService.createUser({
+            const res = await userService.createUser({
                 username: formData.name,
                 email: formData.email,
                 password: formData.password,
@@ -166,15 +180,25 @@ const UserManagement = ({ navigation }) => {
                 isActive: formData.isActive,
             });
 
+            const createdUser = res.data?.user;
+            if (selectedImage?.startsWith('file://') && createdUser?.id) {
+                try {
+                    await userService.uploadAvatar(createdUser.id, selectedImage);
+                } catch (uploadError) {
+                    console.error('Error uploading avatar after create:', uploadError);
+                }
+            }
+
+            const createdName = formData.name;
             setShowCreateModal(false);
             resetForm();
             await fetchUsers();
-            
+
             setStatusModal({
                 visible: true,
                 type: 'success',
                 title: '¡Usuario Creado!',
-                message: `El usuario ${formData.name} ha sido creado exitosamente y ya puede acceder al sistema.`,
+                message: `El usuario ${createdName} ha sido creado exitosamente y ya puede acceder al sistema.`,
             });
         } catch (error) {
             console.error('❌ Error creating user:', error);
@@ -184,6 +208,8 @@ const UserManagement = ({ navigation }) => {
                 title: 'Error al Crear',
                 message: error.response?.data?.error?.message || 'No se pudo crear el usuario. Por favor, intenta de nuevo.',
             });
+        } finally {
+            setSavingUser(false);
         }
     };
 
@@ -199,15 +225,31 @@ const UserManagement = ({ navigation }) => {
                 return;
             }
 
+            const password = formData.password?.trim();
+            if (password && password.length < 8) {
+                setStatusModal({
+                    visible: true,
+                    type: 'warning',
+                    title: 'Contraseña inválida',
+                    message: 'La nueva contraseña debe tener al menos 8 caracteres.',
+                });
+                return;
+            }
+
+            setSavingUser(true);
             console.log('✏️ Updating user:', selectedUser.id);
 
-            // Update user profile
-            await userService.updateUserProfile(selectedUser.id, {
+            const updatePayload = {
                 username: formData.name,
                 email: formData.email,
-            });
+                isActive: formData.isActive,
+            };
+            if (password) {
+                updatePayload.password = password;
+            }
 
-            // Update role if changed
+            await userService.updateUserProfile(selectedUser.id, updatePayload);
+
             if (formData.role !== selectedUser.role) {
                 await userService.updateUserRole(selectedUser.id, formData.role);
             }
@@ -215,12 +257,14 @@ const UserManagement = ({ navigation }) => {
             setShowEditModal(false);
             resetForm();
             await fetchUsers();
-            
+
             setStatusModal({
                 visible: true,
                 type: 'success',
                 title: '¡Actualización Exitosa!',
-                message: `Los datos de ${formData.name} han sido actualizados correctamente.`,
+                message: password
+                    ? `Los datos de ${formData.name} se actualizaron y la contraseña fue cambiada.`
+                    : `Los datos de ${formData.name} han sido actualizados correctamente.`,
             });
         } catch (error) {
             console.error('❌ Error updating user:', error);
@@ -230,6 +274,8 @@ const UserManagement = ({ navigation }) => {
                 title: 'Error al Actualizar',
                 message: error.response?.data?.error?.message || 'No se pudo actualizar el usuario. Por favor, intenta de nuevo.',
             });
+        } finally {
+            setSavingUser(false);
         }
     };
 
@@ -269,15 +315,17 @@ const UserManagement = ({ navigation }) => {
             email: user.email || '',
             password: '',
             role: user.role || 'user',
-            isActive: user.isActive !== false,
+            isActive: isUserActive(user),
         });
-        setSelectedImage(null); // Reset selected image when opening edit modal
+        setShowPassword(false);
+        setSelectedImage(null);
         setShowEditModal(true);
     };
 
     const openCreateModal = () => {
         resetForm();
         setSelectedImage(null);
+        setShowPassword(false);
         setShowCreateModal(true);
     };
 
@@ -299,17 +347,6 @@ const UserManagement = ({ navigation }) => {
     };
 
     const pickImage = async () => {
-        const userId = selectedUser?.id;
-        if (!userId) {
-            setStatusModal({
-                visible: true,
-                type: 'warning',
-                title: 'Error',
-                message: 'Debes crear el usuario primero antes de subir una foto.',
-            });
-            return;
-        }
-
         const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
         if (!permissionResult.granted) {
             setStatusModal({
@@ -325,19 +362,17 @@ const UserManagement = ({ navigation }) => {
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsEditing: true,
             aspect: [1, 1],
-            quality: 0.5, // Reducir calidad para archivos más pequeños
+            quality: 0.5,
             base64: false,
         });
 
-        if (!result.canceled && result.assets && result.assets.length > 0) {
+        if (!result.canceled && result.assets?.length > 0) {
             const imageUri = result.assets[0].uri;
-            console.log('📸 Imagen seleccionada:', {
-                uri: imageUri,
-                width: result.assets[0].width,
-                height: result.assets[0].height,
-            });
             setSelectedImage(imageUri);
-            await handleUploadAvatar(imageUri);
+
+            if (selectedUser?.id && showEditModal) {
+                await handleUploadAvatar(imageUri);
+            }
         }
     };
 
@@ -407,7 +442,7 @@ const UserManagement = ({ navigation }) => {
     };
 
     const renderUserItem = (user) => {
-        const isActive = user.isActive !== false;
+        const isActive = isUserActive(user);
         const isAdmin = user.role === 'admin';
 
         return (
@@ -633,60 +668,98 @@ const UserManagement = ({ navigation }) => {
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Crear Nuevo Usuario</Text>
-                            <TouchableOpacity onPress={() => setShowCreateModal(false)}>
-                                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalTitle}>Crear usuario</Text>
+                                <Text style={styles.modalSubtitle}>Registra un nuevo jugador o administrador</Text>
+                            </View>
+                            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => { setShowCreateModal(false); resetForm(); }}>
+                                <Ionicons name="close" size={22} color={COLORS.white} />
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-                            {/* Photo Upload Section */}
-                            <View style={styles.photoSection}>
-                                <View style={styles.photoPlaceholder}>
-                                    {uploadingImage ? (
-                                        <ActivityIndicator size="large" color={COLORS.primary} />
-                                    ) : selectedImage || selectedUser?.avatar ? (
-                                        <Image
-                                            source={{ uri: selectedImage || `${BASE_URL}${selectedUser?.avatar}` }}
-                                            style={styles.avatarImage}
-                                        />
+                        <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                            <LinearGradient
+                                colors={['rgba(68,128,255,0.12)', 'rgba(26,47,38,0.6)']}
+                                style={styles.modalHero}
+                            >
+                                <View style={styles.modalHeroAvatar}>
+                                    {selectedImage ? (
+                                        <Image source={{ uri: selectedImage }} style={styles.modalHeroAvatarImg} />
                                     ) : (
-                                        <Ionicons name="camera" size={32} color={COLORS.textSecondary} />
+                                        <Ionicons name="person-add-outline" size={26} color={COLORS.secondary} />
                                     )}
                                 </View>
-                                <View style={styles.photoInfo}>
-                                    <Text style={styles.photoTitle}>Foto de Perfil</Text>
-                                    <Text style={styles.photoSubtext}>Tamaño recomendado 400x400px. JPG o PNG.</Text>
-                                    <TouchableOpacity
-                                        style={[styles.uploadButton, uploadingImage && styles.uploadButtonDisabled]}
-                                        onPress={pickImage}
-                                        disabled={uploadingImage}
-                                    >
-                                        <Text style={styles.uploadButtonText}>Subir Nueva</Text>
-                                    </TouchableOpacity>
+                                <View style={styles.modalHeroInfo}>
+                                    <Text style={styles.modalHeroName} numberOfLines={1}>
+                                        {formData.name || 'Nuevo usuario'}
+                                    </Text>
+                                    <Text style={styles.modalHeroEmail} numberOfLines={1}>
+                                        {formData.email || 'correo@ejemplo.com'}
+                                    </Text>
+                                    <View style={styles.modalHeroBadges}>
+                                        <View style={[styles.modalBadge, formData.role === 'admin' && styles.modalBadgeAdmin]}>
+                                            <Text style={styles.modalBadgeText}>
+                                                {formData.role === 'admin' ? 'Admin' : 'Usuario'}
+                                            </Text>
+                                        </View>
+                                        <View style={[styles.modalBadge, formData.isActive ? styles.modalBadgeActive : styles.modalBadgeSuspended]}>
+                                            <Text style={styles.modalBadgeText}>
+                                                {formData.isActive ? 'Activo' : 'Suspendido'}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            </LinearGradient>
+
+                            <View style={styles.modalSectionCard}>
+                                <Text style={styles.modalSectionTitle}>Foto de perfil (opcional)</Text>
+                                <View style={styles.photoRow}>
+                                    <View style={styles.photoPlaceholderCompact}>
+                                        {selectedImage ? (
+                                            <Image source={{ uri: selectedImage }} style={styles.avatarImage} />
+                                        ) : (
+                                            <Ionicons name="camera-outline" size={24} color={COLORS.textSecondary} />
+                                        )}
+                                    </View>
+                                    <View style={styles.photoActionsCol}>
+                                        <TouchableOpacity style={styles.uploadButtonCompact} onPress={pickImage}>
+                                            <Ionicons name="cloud-upload-outline" size={16} color="#000" />
+                                            <Text style={styles.uploadButtonText}>Elegir foto</Text>
+                                        </TouchableOpacity>
+                                        {selectedImage ? (
+                                            <TouchableOpacity
+                                                style={styles.removeButtonCompact}
+                                                onPress={() => setSelectedImage(null)}
+                                            >
+                                                <Ionicons name="trash-outline" size={16} color={COLORS.error} />
+                                                <Text style={styles.removeButtonText}>Quitar</Text>
+                                            </TouchableOpacity>
+                                        ) : (
+                                            <Text style={styles.formHint}>Se subirá al crear el usuario.</Text>
+                                        )}
+                                    </View>
                                 </View>
                             </View>
 
-                            {/* Form Fields */}
-                            <View style={styles.formSection}>
-                                <Text style={styles.sectionTitle}>Información Personal</Text>
+                            <View style={styles.modalSectionCard}>
+                                <Text style={styles.modalSectionTitle}>Información personal</Text>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Nombre Completo</Text>
+                                    <Text style={styles.formLabel}>Nombre de usuario</Text>
                                     <View style={styles.inputContainer}>
                                         <MaterialIcons name="person" size={20} color="#94a3b8" style={styles.inputIcon} />
                                         <TextInput
                                             style={styles.input}
                                             value={formData.name}
                                             onChangeText={(text) => setFormData({ ...formData, name: text })}
-                                            placeholder="Ingresa el nombre completo"
+                                            placeholder="Nombre visible en la app"
                                             placeholderTextColor="#64748b"
                                         />
                                     </View>
                                 </View>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Correo Electrónico</Text>
+                                    <Text style={styles.formLabel}>Correo electrónico</Text>
                                     <View style={styles.inputContainer}>
                                         <MaterialIcons name="mail" size={20} color="#94a3b8" style={styles.inputIcon} />
                                         <TextInput
@@ -702,21 +775,18 @@ const UserManagement = ({ navigation }) => {
                                 </View>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Contraseña</Text>
+                                    <Text style={styles.formLabel}>Contraseña inicial</Text>
                                     <View style={styles.inputContainer}>
                                         <MaterialIcons name="lock" size={20} color="#94a3b8" style={styles.inputIcon} />
                                         <TextInput
                                             style={styles.input}
                                             value={formData.password}
                                             onChangeText={(text) => setFormData({ ...formData, password: text })}
-                                            placeholder="Ingresa la contraseña"
+                                            placeholder="Mínimo 8 caracteres"
                                             placeholderTextColor="#64748b"
                                             secureTextEntry={!showPassword}
                                         />
-                                        <TouchableOpacity
-                                            style={styles.eyeIcon}
-                                            onPress={() => setShowPassword(!showPassword)}
-                                        >
+                                        <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowPassword(!showPassword)}>
                                             <MaterialIcons
                                                 name={showPassword ? 'visibility' : 'visibility-off'}
                                                 size={20}
@@ -727,12 +797,11 @@ const UserManagement = ({ navigation }) => {
                                 </View>
                             </View>
 
-                            {/* Governance Section */}
-                            <View style={styles.formSection}>
-                                <Text style={styles.sectionTitle}>Permisos y Acceso</Text>
+                            <View style={styles.modalSectionCard}>
+                                <Text style={styles.modalSectionTitle}>Permisos y acceso</Text>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Rol de Usuario</Text>
+                                    <Text style={styles.formLabel}>Rol</Text>
                                     <View style={styles.roleToggle}>
                                         <TouchableOpacity
                                             style={[styles.roleOption, formData.role === 'user' && styles.roleOptionActive]}
@@ -754,7 +823,7 @@ const UserManagement = ({ navigation }) => {
                                 </View>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Estado de Cuenta</Text>
+                                    <Text style={styles.formLabel}>Estado de cuenta</Text>
                                     <View style={styles.statusToggle}>
                                         <TouchableOpacity
                                             style={[styles.statusOption, formData.isActive && styles.statusOptionActive]}
@@ -777,27 +846,29 @@ const UserManagement = ({ navigation }) => {
                             </View>
                         </ScrollView>
 
-                        {/* Modal Actions */}
                         <View style={styles.modalActions}>
                             <TouchableOpacity
                                 style={styles.cancelButton}
-                                onPress={() => {
-                                    setShowCreateModal(false);
-                                    resetForm();
-                                }}
+                                onPress={() => { setShowCreateModal(false); resetForm(); }}
+                                disabled={savingUser}
                             >
-                                <Text style={styles.cancelButtonText}>CANCELAR</Text>
+                                <Text style={styles.cancelButtonText}>Cancelar</Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity
-                                style={styles.saveButton}
+                                style={[styles.saveButton, savingUser && { opacity: 0.7 }]}
                                 onPress={handleCreateUser}
+                                disabled={savingUser}
                             >
                                 <LinearGradient
                                     colors={[COLORS.primary, COLORS.primaryDark]}
                                     style={styles.saveButtonGradient}
                                 >
-                                    <Text style={styles.saveButtonText}>CREAR USUARIO</Text>
+                                    {savingUser ? (
+                                        <ActivityIndicator color="#000" />
+                                    ) : (
+                                        <Text style={styles.saveButtonText}>Crear usuario</Text>
+                                    )}
                                 </LinearGradient>
                             </TouchableOpacity>
                         </View>
@@ -815,68 +886,107 @@ const UserManagement = ({ navigation }) => {
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
                         <View style={styles.modalHeader}>
-                            <Text style={styles.modalTitle}>Editar Perfil de Usuario</Text>
-                            <TouchableOpacity onPress={() => setShowEditModal(false)}>
-                                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.modalTitle}>Editar usuario</Text>
+                                <Text style={styles.modalSubtitle}>Actualiza datos, contraseña y permisos</Text>
+                            </View>
+                            <TouchableOpacity style={styles.modalCloseBtn} onPress={() => { setShowEditModal(false); resetForm(); }}>
+                                <Ionicons name="close" size={22} color={COLORS.white} />
                             </TouchableOpacity>
                         </View>
 
-                        <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-                            {/* Same form as create but with update logic */}
-                            <View style={styles.photoSection}>
-                                <View style={styles.photoPlaceholder}>
-                                    {uploadingImage ? (
-                                        <ActivityIndicator size="large" color={COLORS.primary} />
-                                    ) : selectedImage || selectedUser?.avatar ? (
+                        <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                            <LinearGradient
+                                colors={['rgba(0,230,119,0.12)', 'rgba(26,47,38,0.6)']}
+                                style={styles.modalHero}
+                            >
+                                <View style={styles.modalHeroAvatar}>
+                                    {selectedImage || selectedUser?.avatar ? (
                                         <Image
                                             source={{ uri: selectedImage || `${BASE_URL}${selectedUser?.avatar}` }}
-                                            style={styles.avatarImage}
+                                            style={styles.modalHeroAvatarImg}
                                         />
                                     ) : (
-                                        <Ionicons name="camera" size={32} color={COLORS.textSecondary} />
+                                        <Text style={styles.modalHeroInitial}>
+                                            {(selectedUser?.username || selectedUser?.email || 'U').charAt(0).toUpperCase()}
+                                        </Text>
                                     )}
                                 </View>
-                                <View style={styles.photoInfo}>
-                                    <Text style={styles.photoTitle}>Foto de Perfil</Text>
-                                    <Text style={styles.photoSubtext}>Tamaño recomendado 400x400px. JPG o PNG.</Text>
-                                    <View style={styles.photoButtons}>
+                                <View style={styles.modalHeroInfo}>
+                                    <Text style={styles.modalHeroName} numberOfLines={1}>
+                                        {formData.name || selectedUser?.username || 'Usuario'}
+                                    </Text>
+                                    <Text style={styles.modalHeroEmail} numberOfLines={1}>{formData.email}</Text>
+                                    <View style={styles.modalHeroBadges}>
+                                        <View style={[styles.modalBadge, formData.role === 'admin' && styles.modalBadgeAdmin]}>
+                                            <Text style={styles.modalBadgeText}>
+                                                {formData.role === 'admin' ? 'Admin' : 'Usuario'}
+                                            </Text>
+                                        </View>
+                                        <View style={[styles.modalBadge, formData.isActive ? styles.modalBadgeActive : styles.modalBadgeSuspended]}>
+                                            <Text style={styles.modalBadgeText}>
+                                                {formData.isActive ? 'Activo' : 'Suspendido'}
+                                            </Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            </LinearGradient>
+
+                            <View style={styles.modalSectionCard}>
+                                <Text style={styles.modalSectionTitle}>Foto de perfil</Text>
+                                <View style={styles.photoRow}>
+                                    <View style={styles.photoPlaceholderCompact}>
+                                        {uploadingImage ? (
+                                            <ActivityIndicator size="small" color={COLORS.primary} />
+                                        ) : selectedImage || selectedUser?.avatar ? (
+                                            <Image
+                                                source={{ uri: selectedImage || `${BASE_URL}${selectedUser?.avatar}` }}
+                                                style={styles.avatarImage}
+                                            />
+                                        ) : (
+                                            <Ionicons name="camera-outline" size={24} color={COLORS.textSecondary} />
+                                        )}
+                                    </View>
+                                    <View style={styles.photoActionsCol}>
                                         <TouchableOpacity
-                                            style={[styles.uploadButton, uploadingImage && styles.uploadButtonDisabled]}
+                                            style={[styles.uploadButtonCompact, uploadingImage && styles.uploadButtonDisabled]}
                                             onPress={pickImage}
                                             disabled={uploadingImage}
                                         >
-                                            <Text style={styles.uploadButtonText}>Subir Nueva</Text>
+                                            <Ionicons name="cloud-upload-outline" size={16} color="#000" />
+                                            <Text style={styles.uploadButtonText}>Subir foto</Text>
                                         </TouchableOpacity>
                                         <TouchableOpacity
-                                            style={[styles.removeButton, uploadingImage && styles.uploadButtonDisabled]}
+                                            style={[styles.removeButtonCompact, uploadingImage && styles.uploadButtonDisabled]}
                                             onPress={handleDeleteAvatar}
                                             disabled={uploadingImage || (!selectedImage && !selectedUser?.avatar)}
                                         >
+                                            <Ionicons name="trash-outline" size={16} color={COLORS.error} />
                                             <Text style={styles.removeButtonText}>Eliminar</Text>
                                         </TouchableOpacity>
                                     </View>
                                 </View>
                             </View>
 
-                            <View style={styles.formSection}>
-                                <Text style={styles.sectionTitle}>Información Personal</Text>
+                            <View style={styles.modalSectionCard}>
+                                <Text style={styles.modalSectionTitle}>Información personal</Text>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Nombre Completo</Text>
+                                    <Text style={styles.formLabel}>Nombre de usuario</Text>
                                     <View style={styles.inputContainer}>
                                         <MaterialIcons name="person" size={20} color="#94a3b8" style={styles.inputIcon} />
                                         <TextInput
                                             style={styles.input}
                                             value={formData.name}
                                             onChangeText={(text) => setFormData({ ...formData, name: text })}
-                                            placeholder="Ingresa el nombre completo"
+                                            placeholder="Nombre visible en la app"
                                             placeholderTextColor="#64748b"
                                         />
                                     </View>
                                 </View>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Correo Electrónico</Text>
+                                    <Text style={styles.formLabel}>Correo electrónico</Text>
                                     <View style={styles.inputContainer}>
                                         <MaterialIcons name="mail" size={20} color="#94a3b8" style={styles.inputIcon} />
                                         <TextInput
@@ -892,21 +1002,18 @@ const UserManagement = ({ navigation }) => {
                                 </View>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Contraseña</Text>
+                                    <Text style={styles.formLabel}>Nueva contraseña</Text>
                                     <View style={styles.inputContainer}>
                                         <MaterialIcons name="lock" size={20} color="#94a3b8" style={styles.inputIcon} />
                                         <TextInput
                                             style={styles.input}
                                             value={formData.password}
                                             onChangeText={(text) => setFormData({ ...formData, password: text })}
-                                            placeholder="Dejar vacío para mantener la actual"
+                                            placeholder="Mínimo 8 caracteres"
                                             placeholderTextColor="#64748b"
                                             secureTextEntry={!showPassword}
                                         />
-                                        <TouchableOpacity
-                                            style={styles.eyeIcon}
-                                            onPress={() => setShowPassword(!showPassword)}
-                                        >
+                                        <TouchableOpacity style={styles.eyeIcon} onPress={() => setShowPassword(!showPassword)}>
                                             <MaterialIcons
                                                 name={showPassword ? 'visibility' : 'visibility-off'}
                                                 size={20}
@@ -914,21 +1021,20 @@ const UserManagement = ({ navigation }) => {
                                             />
                                         </TouchableOpacity>
                                     </View>
-                                    <Text style={styles.formHint}>
-                                        Opcional: Dejar vacío si no deseas cambiarla.
-                                    </Text>
+                                    <Text style={styles.formHint}>Déjala vacía si no quieres cambiarla.</Text>
                                 </View>
                             </View>
 
-                            <View style={styles.formSection}>
-                                <Text style={styles.sectionTitle}>Permisos y Acceso</Text>
+                            <View style={styles.modalSectionCard}>
+                                <Text style={styles.modalSectionTitle}>Permisos y acceso</Text>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Rol de Usuario</Text>
+                                    <Text style={styles.formLabel}>Rol</Text>
                                     <View style={styles.roleToggle}>
                                         <TouchableOpacity
                                             style={[styles.roleOption, formData.role === 'user' && styles.roleOptionActive]}
-                                            onPress={() => setFormData({ ...formData, role: 'user' })}>
+                                            onPress={() => setFormData({ ...formData, role: 'user' })}
+                                        >
                                             <Text style={[styles.roleOptionText, formData.role === 'user' && styles.roleOptionTextActive]}>
                                                 Usuario
                                             </Text>
@@ -945,7 +1051,7 @@ const UserManagement = ({ navigation }) => {
                                 </View>
 
                                 <View style={styles.formGroup}>
-                                    <Text style={styles.formLabel}>Estado de Cuenta</Text>
+                                    <Text style={styles.formLabel}>Estado de cuenta</Text>
                                     <View style={styles.statusToggle}>
                                         <TouchableOpacity
                                             style={[styles.statusOption, formData.isActive && styles.statusOptionActive]}
@@ -971,23 +1077,26 @@ const UserManagement = ({ navigation }) => {
                         <View style={styles.modalActions}>
                             <TouchableOpacity
                                 style={styles.cancelButton}
-                                onPress={() => {
-                                    setShowEditModal(false);
-                                    resetForm();
-                                }}
+                                onPress={() => { setShowEditModal(false); resetForm(); }}
+                                disabled={savingUser}
                             >
-                                <Text style={styles.cancelButtonText}>CANCELAR</Text>
+                                <Text style={styles.cancelButtonText}>Cancelar</Text>
                             </TouchableOpacity>
 
                             <TouchableOpacity
-                                style={styles.saveButton}
+                                style={[styles.saveButton, savingUser && { opacity: 0.7 }]}
                                 onPress={handleUpdateUser}
+                                disabled={savingUser}
                             >
                                 <LinearGradient
                                     colors={[COLORS.primary, COLORS.primaryDark]}
                                     style={styles.saveButtonGradient}
                                 >
-                                    <Text style={styles.saveButtonText}>GUARDAR CAMBIOS</Text>
+                                    {savingUser ? (
+                                        <ActivityIndicator color="#000" />
+                                    ) : (
+                                        <Text style={styles.saveButtonText}>Guardar cambios</Text>
+                                    )}
                                 </LinearGradient>
                             </TouchableOpacity>
                         </View>
@@ -1449,8 +1558,110 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#f1f5f9',
     },
+    modalSubtitle: {
+        fontSize: 12,
+        color: COLORS.textSecondary,
+        marginTop: 2,
+    },
+    modalCloseBtn: {
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    modalHero: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 14,
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 14,
+        borderWidth: 1,
+        borderColor: `${COLORS.primary}25`,
+    },
+    modalHeroAvatar: {
+        width: 56,
+        height: 56,
+        borderRadius: 16,
+        backgroundColor: `${COLORS.primary}18`,
+        borderWidth: 1,
+        borderColor: `${COLORS.primary}35`,
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+    },
+    modalHeroAvatarImg: { width: '100%', height: '100%' },
+    modalHeroInitial: { fontSize: 22, fontWeight: '800', color: COLORS.primary },
+    modalHeroInfo: { flex: 1, minWidth: 0 },
+    modalHeroName: { fontSize: 16, fontWeight: '800', color: COLORS.white },
+    modalHeroEmail: { fontSize: 12, color: COLORS.textSecondary, marginTop: 2 },
+    modalHeroBadges: { flexDirection: 'row', gap: 8, marginTop: 8, flexWrap: 'wrap' },
+    modalBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 4,
+        borderRadius: 8,
+        backgroundColor: 'rgba(255,255,255,0.06)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+    },
+    modalBadgeAdmin: { backgroundColor: `${COLORS.primary}18`, borderColor: `${COLORS.primary}35` },
+    modalBadgeActive: { backgroundColor: `${COLORS.primary}15`, borderColor: `${COLORS.primary}30` },
+    modalBadgeSuspended: { backgroundColor: `${COLORS.error}12`, borderColor: `${COLORS.error}35` },
+    modalBadgeText: { fontSize: 10, fontWeight: '700', color: COLORS.white },
+    modalSectionCard: {
+        backgroundColor: 'rgba(32, 38, 47, 0.55)',
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 14,
+        borderWidth: 1,
+        borderColor: `${COLORS.primary}15`,
+    },
+    modalSectionTitle: {
+        fontSize: 11,
+        fontWeight: '700',
+        color: COLORS.textSecondary,
+        textTransform: 'uppercase',
+        letterSpacing: 0.6,
+        marginBottom: 14,
+    },
+    photoRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+    photoPlaceholderCompact: {
+        width: 72,
+        height: 72,
+        borderRadius: 18,
+        backgroundColor: 'rgba(255,255,255,0.05)',
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.08)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        overflow: 'hidden',
+    },
+    photoActionsCol: { flex: 1, gap: 8 },
+    uploadButtonCompact: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        backgroundColor: COLORS.primary,
+        paddingVertical: 10,
+        borderRadius: 10,
+    },
+    removeButtonCompact: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        backgroundColor: `${COLORS.error}12`,
+        borderWidth: 1,
+        borderColor: `${COLORS.error}35`,
+        paddingVertical: 10,
+        borderRadius: 10,
+    },
     modalBody: {
         padding: 20,
+        paddingTop: 12,
     },
     photoSection: {
         flexDirection: 'row',

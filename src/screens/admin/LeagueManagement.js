@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   View, 
   Text, 
@@ -7,7 +7,10 @@ import {
   TextInput,
   TouchableOpacity,
   RefreshControl,
-  Modal
+  Modal,
+  ActivityIndicator,
+  Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -15,15 +18,19 @@ import { COLORS } from '../../constants/theme';
 import AdminHeader from '../../components/admin/AdminHeader';
 import StatusModal from '../../components/StatusModal';
 import { sportService, leagueService } from '../../services';
-import { useAuth } from '../../context/AuthContext';
+
+const PAGE_SIZE = 12;
 
 const LeagueManagement = ({ navigation }) => {
-  const { token } = useAuth();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const dialogWidth = Math.min(screenWidth - 32, 420);
   const [leagues, setLeagues] = useState([]);
   const [sports, setSports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedSportFilter, setSelectedSportFilter] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
   
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -204,10 +211,147 @@ const LeagueManagement = ({ navigation }) => {
     setSelectedLeague(null);
   };
 
-  const filteredLeagues = leagues.filter(league => 
-    league.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    league.country?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    league.season.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredLeagues = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return leagues.filter(league => {
+      const matchesSearch = !q
+        || league.name?.toLowerCase().includes(q)
+        || league.country?.toLowerCase().includes(q)
+        || league.season?.toLowerCase().includes(q);
+      const matchesSport = !selectedSportFilter || league.sport_id === selectedSportFilter;
+      return matchesSearch && matchesSport;
+    });
+  }, [leagues, searchQuery, selectedSportFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredLeagues.length / PAGE_SIZE));
+  const paginatedLeagues = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredLeagues.slice(start, start + PAGE_SIZE);
+  }, [filteredLeagues, currentPage]);
+
+  const pageStart = filteredLeagues.length === 0 ? 0 : (currentPage - 1) * PAGE_SIZE + 1;
+  const pageEnd = Math.min(currentPage * PAGE_SIZE, filteredLeagues.length);
+
+  const sportCounts = useMemo(() => {
+    const counts = {};
+    leagues.forEach(l => {
+      if (l.sport_id) counts[l.sport_id] = (counts[l.sport_id] || 0) + 1;
+    });
+    return counts;
+  }, [leagues]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedSportFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const clearFilters = () => {
+    setSearchQuery('');
+    setSelectedSportFilter('');
+    setCurrentPage(1);
+  };
+
+  const renderLeagueFormFields = () => (
+    <View style={styles.formSection}>
+      <Text style={styles.formSectionTitle}>Información básica</Text>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.formLabel}>Nombre de la liga *</Text>
+        <TextInput
+          style={styles.formInput}
+          placeholder="UEFA Champions League"
+          placeholderTextColor={`${COLORS.white}40`}
+          value={formData.name}
+          onChangeText={(text) => setFormData({ ...formData, name: text })}
+        />
+      </View>
+
+      <View style={styles.formRow}>
+        <View style={styles.formGroupHalf}>
+          <Text style={styles.formLabel}>Temporada *</Text>
+          <TextInput
+            style={styles.formInput}
+            placeholder="2024-2025"
+            placeholderTextColor={`${COLORS.white}40`}
+            value={formData.season}
+            onChangeText={(text) => setFormData({ ...formData, season: text })}
+          />
+        </View>
+        <View style={styles.formGroupHalf}>
+          <Text style={styles.formLabel}>País</Text>
+          <TextInput
+            style={styles.formInput}
+            placeholder="Europa"
+            placeholderTextColor={`${COLORS.white}40`}
+            value={formData.country}
+            onChangeText={(text) => setFormData({ ...formData, country: text })}
+          />
+        </View>
+      </View>
+
+      <View style={styles.formGroup}>
+        <Text style={styles.formLabel}>Deporte *</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.optionScroll}>
+          {sports.map((sport) => (
+            <TouchableOpacity
+              key={sport.id}
+              style={[styles.optionChip, formData.sport_id === sport.id && styles.optionChipActive]}
+              onPress={() => setFormData({ ...formData, sport_id: sport.id })}
+            >
+              <Ionicons
+                name={sport.icon || 'trophy'}
+                size={16}
+                color={formData.sport_id === sport.id ? COLORS.backgroundDark : COLORS.primary}
+              />
+              <Text style={[styles.optionText, formData.sport_id === sport.id && styles.optionTextActive]}>
+                {sport.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
+    </View>
+  );
+
+  const renderLeagueCard = (league) => (
+    <View key={league.id} style={styles.leagueCard}>
+      <View style={styles.leagueContent}>
+        <View style={styles.leagueLeft}>
+          <View style={styles.leagueIcon}>
+            <Ionicons name="trophy" size={22} color={COLORS.primary} />
+          </View>
+          <View style={styles.leagueInfo}>
+            <Text style={styles.leagueName} numberOfLines={1}>{league.name}</Text>
+            <View style={styles.leagueMeta}>
+              <Text style={styles.leagueSeason}>{league.season}</Text>
+              {league.country ? (
+                <>
+                  <Text style={styles.separator}>•</Text>
+                  <Text style={styles.leagueCountry} numberOfLines={1}>{league.country}</Text>
+                </>
+              ) : null}
+              {league.sport ? (
+                <>
+                  <Text style={styles.separator}>•</Text>
+                  <Text style={styles.sportName} numberOfLines={1}>{league.sport.name}</Text>
+                </>
+              ) : null}
+            </View>
+          </View>
+        </View>
+        <View style={styles.leagueActions}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => openEditModal(league)}>
+            <Ionicons name="create-outline" size={20} color={COLORS.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionButton, styles.deleteActionBtn]} onPress={() => openDeleteModal(league)}>
+            <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
   );
 
   return (
@@ -232,28 +376,71 @@ const LeagueManagement = ({ navigation }) => {
           />
         }
       >
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <Ionicons 
-            name="search" 
-            size={18} 
-            color={`${COLORS.primary}60`} 
-            style={styles.searchIcon} 
-          />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Buscar liga, país o temporada..."
-            placeholderTextColor={`${COLORS.white}40`}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
+        <View style={styles.toolbarCard}>
+          <Text style={styles.toolbarLabel}>Buscar ligas</Text>
+          <View style={styles.searchBox}>
+            <Ionicons name="search" size={20} color={COLORS.primary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Nombre, país o temporada..."
+              placeholderTextColor={COLORS.textSecondary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close-circle" size={20} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          <View style={styles.filterHeader}>
+            <Text style={styles.filterLabel}>Filtrar por deporte</Text>
+            {(searchQuery || selectedSportFilter) ? (
+              <TouchableOpacity onPress={clearFilters} style={styles.clearFiltersBtn}>
+                <Ionicons name="filter-outline" size={14} color={COLORS.error} />
+                <Text style={styles.clearFiltersText}>Limpiar</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipsRow}>
+            <TouchableOpacity
+              style={[styles.filterChip, !selectedSportFilter && styles.filterChipActive]}
+              onPress={() => setSelectedSportFilter('')}
+            >
+              <Text style={[styles.filterChipText, !selectedSportFilter && styles.filterChipTextActive]}>
+                Todas ({leagues.length})
+              </Text>
+            </TouchableOpacity>
+            {sports.map(sport => (
+              <TouchableOpacity
+                key={sport.id}
+                style={[styles.filterChip, selectedSportFilter === sport.id && styles.filterChipActive]}
+                onPress={() => setSelectedSportFilter(sport.id)}
+              >
+                <Ionicons
+                  name={sport.icon || 'trophy'}
+                  size={14}
+                  color={selectedSportFilter === sport.id ? COLORS.backgroundDark : COLORS.primary}
+                />
+                <Text style={[styles.filterChipText, selectedSportFilter === sport.id && styles.filterChipTextActive]}>
+                  {sport.name} ({sportCounts[sport.id] || 0})
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
         </View>
 
-        {/* Stats */}
         <View style={styles.statsRow}>
           <View style={styles.statBox}>
+            <Text style={styles.statNumber}>{filteredLeagues.length}</Text>
+            <Text style={styles.statLabel}>FILTRADAS</Text>
+          </View>
+          <View style={styles.statBox}>
             <Text style={styles.statNumber}>{leagues.length}</Text>
-            <Text style={styles.statLabel}>LIGAS</Text>
+            <Text style={styles.statLabel}>TOTAL</Text>
           </View>
           <View style={styles.statBox}>
             <Text style={styles.statNumber}>{sports.length}</Text>
@@ -261,65 +448,61 @@ const LeagueManagement = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Leagues List */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>LIGAS REGISTRADAS</Text>
             <View style={styles.countBadge}>
-              <Text style={styles.countText}>{filteredLeagues.length}</Text>
+              <Text style={styles.countText}>
+                {filteredLeagues.length === 0 ? '0' : `${pageStart}-${pageEnd}`} de {filteredLeagues.length}
+              </Text>
             </View>
           </View>
 
-          {filteredLeagues.length === 0 ? (
+          {loading && leagues.length === 0 ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator size="large" color={COLORS.primary} />
+              <Text style={styles.emptyStateText}>Cargando ligas...</Text>
+            </View>
+          ) : filteredLeagues.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="trophy-outline" size={60} color={`${COLORS.primary}40`} />
-              <Text style={styles.emptyStateText}>No hay ligas registradas</Text>
+              <Text style={styles.emptyStateText}>
+                {searchQuery || selectedSportFilter ? 'No hay ligas con estos filtros' : 'No hay ligas registradas'}
+              </Text>
+              {(searchQuery || selectedSportFilter) && (
+                <TouchableOpacity style={styles.emptyActionBtn} onPress={clearFilters}>
+                  <Text style={styles.emptyActionText}>Quitar filtros</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
-            filteredLeagues.map((league) => (
-              <View key={league.id} style={styles.leagueCard}>
-                <View style={styles.leagueContent}>
-                  <View style={styles.leagueLeft}>
-                    <View style={styles.leagueIcon}>
-                      <Ionicons name="trophy" size={24} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.leagueInfo}>
-                      <Text style={styles.leagueName}>{league.name}</Text>
-                      <View style={styles.leagueMeta}>
-                        <Text style={styles.leagueSeason}>{league.season}</Text>
-                        {league.country && (
-                          <>
-                            <Text style={styles.separator}>•</Text>
-                            <Text style={styles.leagueCountry}>{league.country}</Text>
-                          </>
-                        )}
-                        {league.sport && (
-                          <>
-                            <Text style={styles.separator}>•</Text>
-                            <Text style={styles.sportName}>{league.sport.name}</Text>
-                          </>
-                        )}
-                      </View>
-                    </View>
+            <>
+              {paginatedLeagues.map(renderLeagueCard)}
+              {totalPages > 1 && (
+                <View style={styles.paginationBar}>
+                  <TouchableOpacity
+                    style={[styles.pageBtn, currentPage === 1 && styles.pageBtnDisabled]}
+                    onPress={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                  >
+                    <Ionicons name="chevron-back" size={18} color={currentPage === 1 ? COLORS.textSecondary : COLORS.white} />
+                    <Text style={[styles.pageBtnText, currentPage === 1 && styles.pageBtnTextDisabled]}>Anterior</Text>
+                  </TouchableOpacity>
+                  <View style={styles.pageIndicator}>
+                    <Text style={styles.pageIndicatorText}>{currentPage}</Text>
+                    <Text style={styles.pageIndicatorSub}>de {totalPages}</Text>
                   </View>
-
-                  <View style={styles.leagueActions}>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => openEditModal(league)}
-                    >
-                      <Ionicons name="create-outline" size={20} color={COLORS.primary} />
-                    </TouchableOpacity>
-                    <TouchableOpacity 
-                      style={styles.actionButton}
-                      onPress={() => openDeleteModal(league)}
-                    >
-                      <Ionicons name="trash-outline" size={20} color={COLORS.errorLight} />
-                    </TouchableOpacity>
-                  </View>
+                  <TouchableOpacity
+                    style={[styles.pageBtn, currentPage === totalPages && styles.pageBtnDisabled]}
+                    onPress={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                    disabled={currentPage === totalPages}
+                  >
+                    <Text style={[styles.pageBtnText, currentPage === totalPages && styles.pageBtnTextDisabled]}>Siguiente</Text>
+                    <Ionicons name="chevron-forward" size={18} color={currentPage === totalPages ? COLORS.textSecondary : COLORS.white} />
+                  </TouchableOpacity>
                 </View>
-              </View>
-            ))
+              )}
+            </>
           )}
         </View>
       </ScrollView>
@@ -345,109 +528,27 @@ const LeagueManagement = ({ navigation }) => {
         visible={showCreateModal}
         animationType="slide"
         transparent={true}
+        statusBarTranslucent
         onRequestClose={() => setShowCreateModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalSheet, { maxHeight: screenHeight * 0.88 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>NUEVA LIGA</Text>
-              <TouchableOpacity onPress={() => setShowCreateModal(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              <Text style={styles.modalTitle}>Nueva liga</Text>
+              <TouchableOpacity onPress={() => { setShowCreateModal(false); resetForm(); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={22} color={COLORS.textSecondary} />
               </TouchableOpacity>
             </View>
-
-            <ScrollView style={styles.modalBody}>
-              <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>INFORMACIÓN BÁSICA</Text>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Nombre de la Liga *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="Ej: UEFA Champions League"
-                    placeholderTextColor={`${COLORS.white}40`}
-                    value={formData.name}
-                    onChangeText={(text) => setFormData({ ...formData, name: text })}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Temporada *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="Ej: 2024-2025"
-                    placeholderTextColor={`${COLORS.white}40`}
-                    value={formData.season}
-                    onChangeText={(text) => setFormData({ ...formData, season: text })}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>País (opcional)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="Ej: Europa"
-                    placeholderTextColor={`${COLORS.white}40`}
-                    value={formData.country}
-                    onChangeText={(text) => setFormData({ ...formData, country: text })}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Deporte *</Text>
-                  <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.sportScroll}
-                  >
-                    {sports.map((sport) => (
-                      <TouchableOpacity
-                        key={sport.id}
-                        style={[
-                          styles.sportOption,
-                          formData.sport_id === sport.id && styles.sportOptionActive
-                        ]}
-                        onPress={() => setFormData({ ...formData, sport_id: sport.id })}
-                      >
-                        <Ionicons 
-                          name={sport.icon || 'trophy'} 
-                          size={18} 
-                          color={formData.sport_id === sport.id ? COLORS.backgroundDark : COLORS.primary} 
-                        />
-                        <Text style={[
-                          styles.sportOptionText,
-                          formData.sport_id === sport.id && styles.sportOptionTextActive
-                        ]}>
-                          {sport.name}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </View>
+            <ScrollView style={styles.modalBodyScroll} contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+              {renderLeagueFormFields()}
             </ScrollView>
-
             <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={styles.cancelButton}
-                onPress={() => setShowCreateModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>CANCELAR</Text>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => { setShowCreateModal(false); resetForm(); }}>
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.saveButton}
-                onPress={handleCreateLeague}
-                disabled={loading}
-              >
-                <LinearGradient
-                  colors={[COLORS.primary, COLORS.primaryDark]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.saveButtonGradient}
-                >
-                  <Text style={styles.saveButtonText}>
-                    {loading ? 'CREANDO...' : 'CREAR LIGA'}
-                  </Text>
+              <TouchableOpacity style={styles.saveButton} onPress={handleCreateLeague} disabled={loading}>
+                <LinearGradient colors={[COLORS.primary, COLORS.primaryDark]} style={styles.saveButtonGradient}>
+                  <Text style={styles.saveButtonText}>{loading ? 'Creando...' : 'Crear liga'}</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -460,109 +561,27 @@ const LeagueManagement = ({ navigation }) => {
         visible={showEditModal}
         animationType="slide"
         transparent={true}
+        statusBarTranslucent
         onRequestClose={() => setShowEditModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View style={[styles.modalSheet, { maxHeight: screenHeight * 0.88 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>EDITAR LIGA</Text>
-              <TouchableOpacity onPress={() => setShowEditModal(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textSecondary} />
+              <Text style={styles.modalTitle}>Editar liga</Text>
+              <TouchableOpacity onPress={() => { setShowEditModal(false); resetForm(); }} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={22} color={COLORS.textSecondary} />
               </TouchableOpacity>
             </View>
-
-            <ScrollView style={styles.modalBody}>
-              <View style={styles.formSection}>
-                <Text style={styles.sectionTitle}>INFORMACIÓN BÁSICA</Text>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Nombre de la Liga *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="Ej: UEFA Champions League"
-                    placeholderTextColor={`${COLORS.white}40`}
-                    value={formData.name}
-                    onChangeText={(text) => setFormData({ ...formData, name: text })}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Temporada *</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="Ej: 2024-2025"
-                    placeholderTextColor={`${COLORS.white}40`}
-                    value={formData.season}
-                    onChangeText={(text) => setFormData({ ...formData, season: text })}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>País (opcional)</Text>
-                  <TextInput
-                    style={styles.formInput}
-                    placeholder="Ej: Europa"
-                    placeholderTextColor={`${COLORS.white}40`}
-                    value={formData.country}
-                    onChangeText={(text) => setFormData({ ...formData, country: text })}
-                  />
-                </View>
-
-                <View style={styles.formGroup}>
-                  <Text style={styles.formLabel}>Deporte *</Text>
-                  <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.sportScroll}
-                  >
-                    {sports.map((sport) => (
-                      <TouchableOpacity
-                        key={sport.id}
-                        style={[
-                          styles.sportOption,
-                          formData.sport_id === sport.id && styles.sportOptionActive
-                        ]}
-                        onPress={() => setFormData({ ...formData, sport_id: sport.id })}
-                      >
-                        <Ionicons 
-                          name={sport.icon || 'trophy'} 
-                          size={18} 
-                          color={formData.sport_id === sport.id ? COLORS.backgroundDark : COLORS.primary} 
-                        />
-                        <Text style={[
-                          styles.sportOptionText,
-                          formData.sport_id === sport.id && styles.sportOptionTextActive
-                        ]}>
-                          {sport.name}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </View>
+            <ScrollView style={styles.modalBodyScroll} contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+              {renderLeagueFormFields()}
             </ScrollView>
-
             <View style={styles.modalActions}>
-              <TouchableOpacity 
-                style={styles.cancelButton}
-                onPress={() => setShowEditModal(false)}
-              >
-                <Text style={styles.cancelButtonText}>CANCELAR</Text>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => { setShowEditModal(false); resetForm(); }}>
+                <Text style={styles.cancelButtonText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.saveButton}
-                onPress={handleUpdateLeague}
-                disabled={loading}
-              >
-                <LinearGradient
-                  colors={[COLORS.primary, COLORS.primaryDark]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.saveButtonGradient}
-                >
-                  <Text style={styles.saveButtonText}>
-                    {loading ? 'GUARDANDO...' : 'GUARDAR CAMBIOS'}
-                  </Text>
+              <TouchableOpacity style={styles.saveButton} onPress={handleUpdateLeague} disabled={loading}>
+                <LinearGradient colors={[COLORS.primary, COLORS.primaryDark]} style={styles.saveButtonGradient}>
+                  <Text style={styles.saveButtonText}>{loading ? 'Guardando...' : 'Guardar cambios'}</Text>
                 </LinearGradient>
               </TouchableOpacity>
             </View>
@@ -575,53 +594,49 @@ const LeagueManagement = ({ navigation }) => {
         visible={showDeleteModal}
         animationType="fade"
         transparent={true}
+        statusBarTranslucent
         onRequestClose={() => setShowDeleteModal(false)}
       >
-        <View style={styles.deleteOverlay}>
-          <View style={styles.deleteModal}>
-            <TouchableOpacity 
-              style={styles.closeButton}
-              onPress={() => setShowDeleteModal(false)}
-            >
-              <Ionicons name="close" size={24} color={COLORS.textSecondary} />
-            </TouchableOpacity>
-
-            <View style={styles.deleteIconContainer}>
-              <Ionicons name="warning" size={40} color={COLORS.errorLight} />
-            </View>
-
-            <Text style={styles.deleteTitle}>¿Eliminar Liga?</Text>
-            <Text style={styles.deleteMessage}>
-              Esta acción no se puede deshacer. Todos los datos asociados a esta liga se perderán permanentemente.
-            </Text>
-
-            {selectedLeague && (
-              <View style={styles.deleteLeagueCard}>
-                <View style={styles.deleteLeagueIcon}>
-                  <Ionicons name="trophy" size={28} color={COLORS.primary} />
+        <View style={styles.dialogOverlay}>
+          <View style={[styles.dialogCard, { width: dialogWidth }]}>
+            <View style={styles.dialogHeader}>
+              <View style={styles.dialogHeaderLeft}>
+                <View style={[styles.dialogIconWrap, { backgroundColor: `${COLORS.error}18` }]}>
+                  <Ionicons name="warning" size={26} color={COLORS.errorLight} />
                 </View>
-                <View style={styles.deleteLeagueInfo}>
-                  <Text style={styles.deleteLeagueName}>{selectedLeague.name}</Text>
-                  <Text style={styles.deleteLeagueSeason}>{selectedLeague.season}</Text>
+                <Text style={styles.dialogTitle}>Eliminar liga</Text>
+              </View>
+              <TouchableOpacity style={styles.dialogCloseBtn} onPress={() => setShowDeleteModal(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.dialogMessage}>
+              Esta acción no se puede deshacer. Se perderán jornadas y partidos asociados.
+            </Text>
+            {selectedLeague && (
+              <View style={styles.dialogMatchCard}>
+                <View style={styles.dialogLeagueIcon}>
+                  <Ionicons name="trophy" size={24} color={COLORS.primary} />
+                </View>
+                <View style={styles.dialogLeagueInfo}>
+                  <Text style={styles.dialogLeagueName} numberOfLines={2}>{selectedLeague.name}</Text>
+                  <Text style={styles.dialogLeagueSeason}>{selectedLeague.season}</Text>
+                  {selectedLeague.sport?.name ? (
+                    <Text style={styles.dialogLeagueSport}>{selectedLeague.sport.name}</Text>
+                  ) : null}
                 </View>
               </View>
             )}
-
-            <View style={styles.deleteActions}>
-              <TouchableOpacity 
-                style={styles.deleteCancelButton}
-                onPress={() => setShowDeleteModal(false)}
-              >
-                <Text style={styles.deleteCancelText}>CANCELAR</Text>
+            <View style={styles.dialogActions}>
+              <TouchableOpacity style={styles.dialogBtnSecondary} onPress={() => setShowDeleteModal(false)}>
+                <Text style={styles.dialogBtnSecondaryText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity 
-                style={styles.deleteConfirmButton}
+              <TouchableOpacity
+                style={[styles.dialogBtnPrimary, { backgroundColor: COLORS.errorLight }]}
                 onPress={handleDeleteLeague}
                 disabled={loading}
               >
-                <Text style={styles.deleteConfirmText}>
-                  {loading ? 'ELIMINANDO...' : 'ELIMINAR'}
-                </Text>
+                <Text style={styles.dialogBtnPrimaryText}>{loading ? 'Eliminando...' : 'Eliminar'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -652,52 +667,116 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 100,
   },
-  searchContainer: {
-    position: 'relative',
+  toolbarCard: {
+    backgroundColor: COLORS.cardBackground,
+    borderRadius: 16,
+    padding: 16,
     marginBottom: 16,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}25`,
   },
-  searchIcon: {
-    position: 'absolute',
-    left: 16,
-    top: 14,
-    zIndex: 1,
+  toolbarLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.white,
+    marginBottom: 10,
+  },
+  searchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#1a1f28',
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}40`,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
   },
   searchInput: {
-    backgroundColor: `${COLORS.primary}08`,
+    flex: 1,
+    color: COLORS.white,
+    fontSize: 15,
+    padding: 0,
+    minHeight: 22,
+  },
+  filterHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  filterLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  clearFiltersBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: `${COLORS.error}12`,
+  },
+  clearFiltersText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: COLORS.error,
+  },
+  filterChipsRow: { gap: 8, paddingRight: 4 },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: `${COLORS.primary}12`,
     borderWidth: 1,
     borderColor: `${COLORS.primary}30`,
-    borderRadius: 12,
-    paddingLeft: 48,
-    paddingRight: 16,
-    paddingVertical: 12,
-    color: COLORS.white,
-    fontSize: 14,
+  },
+  filterChipActive: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.primary,
+  },
+  filterChipTextActive: {
+    color: COLORS.backgroundDark,
   },
   statsRow: {
     flexDirection: 'row',
-    gap: 12,
-    marginBottom: 24,
+    gap: 10,
+    marginBottom: 20,
   },
   statBox: {
     flex: 1,
-    backgroundColor: `${COLORS.primary}15`,
-    borderRadius: 16,
-    padding: 20,
+    backgroundColor: `${COLORS.primary}12`,
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 8,
     borderWidth: 1,
-    borderColor: `${COLORS.primary}30`,
+    borderColor: `${COLORS.primary}25`,
     alignItems: 'center',
   },
   statNumber: {
-    fontSize: 32,
+    fontSize: 22,
     fontWeight: '800',
     color: COLORS.primary,
-    marginBottom: 4,
+    marginBottom: 2,
   },
   statLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: `${COLORS.primary}80`,
-    letterSpacing: 1.2,
+    letterSpacing: 0.8,
   },
   section: {
     marginBottom: 24,
@@ -732,8 +811,69 @@ const styles = StyleSheet.create({
   },
   emptyStateText: {
     marginTop: 16,
-    fontSize: 16,
+    fontSize: 15,
     color: COLORS.textSecondary,
+    textAlign: 'center',
+  },
+  emptyActionBtn: {
+    marginTop: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: `${COLORS.primary}18`,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}35`,
+  },
+  emptyActionText: {
+    color: COLORS.primary,
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  paginationBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 8,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: `${COLORS.primary}15`,
+  },
+  pageBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: `${COLORS.primary}15`,
+    borderWidth: 1,
+    borderColor: `${COLORS.primary}30`,
+    minWidth: 100,
+    justifyContent: 'center',
+  },
+  pageBtnDisabled: {
+    opacity: 0.45,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.08)',
+  },
+  pageBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: COLORS.white,
+  },
+  pageBtnTextDisabled: {
+    color: COLORS.textSecondary,
+  },
+  pageIndicator: { alignItems: 'center' },
+  pageIndicatorText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: COLORS.primary,
+  },
+  pageIndicatorSub: {
+    fontSize: 11,
+    color: COLORS.textSecondary,
+    fontWeight: '500',
   },
   leagueCard: {
     backgroundColor: `${COLORS.primary}10`,
@@ -751,13 +891,14 @@ const styles = StyleSheet.create({
   leagueLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 14,
     flex: 1,
+    minWidth: 0,
   },
   leagueIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: `${COLORS.primary}15`,
     borderWidth: 1,
     borderColor: `${COLORS.primary}30`,
@@ -766,6 +907,7 @@ const styles = StyleSheet.create({
   },
   leagueInfo: {
     flex: 1,
+    minWidth: 0,
   },
   leagueName: {
     fontSize: 16,
@@ -794,14 +936,23 @@ const styles = StyleSheet.create({
   sportName: {
     fontSize: 12,
     color: `${COLORS.white}70`,
+    flexShrink: 1,
   },
   leagueActions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
+    marginLeft: 8,
   },
   actionButton: {
-    padding: 8,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: `${COLORS.primary}12`,
+  },
+  deleteActionBtn: {
+    backgroundColor: `${COLORS.error}12`,
   },
   fab: {
     position: 'absolute',
@@ -825,37 +976,53 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
+    width: '100%',
     backgroundColor: 'rgba(10, 14, 20, 0.95)',
     justifyContent: 'flex-end',
+    alignItems: 'stretch',
   },
-  modalContent: {
+  modalSheet: {
+    width: '100%',
     backgroundColor: COLORS.cardBackground,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: '90%',
+    overflow: 'hidden',
   },
   modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   modalTitle: {
-    fontSize: 20,
+    flex: 1,
+    fontSize: 18,
     fontWeight: '700',
     color: '#f1f5f9',
   },
+  modalBodyScroll: { flexGrow: 0, flexShrink: 1 },
   modalBody: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingBottom: 24,
   },
-  formSection: {
-    marginBottom: 24,
+  formSection: { marginBottom: 8 },
+  formSectionTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#cbd5e1',
+    marginBottom: 14,
   },
-  formGroup: {
+  formGroup: { marginBottom: 16, gap: 8 },
+  formGroupHalf: { flex: 1, marginBottom: 0, gap: 8, minWidth: 0 },
+  formRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
     marginBottom: 16,
-    gap: 8,
   },
   formLabel: {
     fontSize: 13,
@@ -868,180 +1035,189 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(168, 171, 179, 0.2)',
     borderRadius: 12,
-    padding: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    minHeight: 48,
     color: COLORS.text,
     fontSize: 15,
     fontWeight: '500',
   },
-  sportScroll: {
-    marginHorizontal: -4,
-  },
-  sportOption: {
+  optionScroll: { marginHorizontal: -4 },
+  optionChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
     paddingVertical: 10,
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     borderRadius: 12,
     backgroundColor: `${COLORS.primary}15`,
     borderWidth: 1,
     borderColor: `${COLORS.primary}30`,
     marginHorizontal: 4,
   },
-  sportOptionActive: {
-    backgroundColor: COLORS.primary,
-  },
-  sportOptionText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: COLORS.primary,
-  },
-  sportOptionTextActive: {
-    color: COLORS.backgroundDark,
-  },
+  optionChipActive: { backgroundColor: COLORS.primary },
+  optionText: { fontSize: 13, fontWeight: '600', color: COLORS.primary },
+  optionTextActive: { color: COLORS.backgroundDark },
   modalActions: {
     flexDirection: 'row',
     gap: 12,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 28 : 20,
     borderTopWidth: 1,
     borderTopColor: 'rgba(255, 255, 255, 0.05)',
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 16,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(168, 171, 179, 0.25)',
+    backgroundColor: 'rgba(32, 38, 47, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   cancelButtonText: {
-    fontSize: 13,
-    fontWeight: '700',
+    fontSize: 14,
+    fontWeight: '600',
     color: COLORS.textSecondary,
-    letterSpacing: 1.2,
   },
   saveButton: {
     flex: 1,
+    height: 48,
     borderRadius: 12,
     overflow: 'hidden',
   },
   saveButtonGradient: {
-    paddingVertical: 16,
+    flex: 1,
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 12,
   },
   saveButtonText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#000',
-    letterSpacing: 1.2,
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.backgroundDark,
+    textAlign: 'center',
   },
-  deleteOverlay: {
+  dialogOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(10, 14, 20, 0.95)',
+    backgroundColor: 'rgba(10, 14, 20, 0.92)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
   },
-  deleteModal: {
-    width: '100%',
-    maxWidth: 500,
+  dialogCard: {
     backgroundColor: COLORS.cardBackground,
     borderRadius: 20,
-    padding: 32,
-    position: 'relative',
+    padding: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
   },
-  closeButton: {
-    position: 'absolute',
-    top: 16,
-    right: 16,
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  deleteIconContainer: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: 'rgba(215, 56, 59, 0.1)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
-    marginBottom: 24,
-  },
-  deleteTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: COLORS.white,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  deleteMessage: {
-    fontSize: 15,
-    color: COLORS.white,
-    textAlign: 'center',
-    lineHeight: 22,
-    marginBottom: 24,
-  },
-  deleteLeagueCard: {
+  dialogHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 24,
+    justifyContent: 'space-between',
+    marginBottom: 12,
   },
-  deleteLeagueIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+  dialogHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  dialogIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dialogTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: COLORS.white,
+    flex: 1,
+  },
+  dialogCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  dialogMessage: {
+    fontSize: 14,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  dialogMatchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  dialogLeagueIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: `${COLORS.primary}20`,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteLeagueInfo: {
-    flex: 1,
-  },
-  deleteLeagueName: {
-    fontSize: 16,
+  dialogLeagueInfo: { flex: 1, minWidth: 0 },
+  dialogLeagueName: {
+    fontSize: 15,
     fontWeight: '700',
     color: COLORS.white,
     marginBottom: 4,
   },
-  deleteLeagueSeason: {
+  dialogLeagueSeason: {
     fontSize: 13,
     color: COLORS.primary,
     fontWeight: '700',
   },
-  deleteActions: {
-    flexDirection: 'row',
-    gap: 12,
+  dialogLeagueSport: {
+    fontSize: 12,
+    color: COLORS.textSecondary,
+    marginTop: 4,
   },
-  deleteCancelButton: {
+  dialogActions: { flexDirection: 'row', gap: 10, marginTop: 4 },
+  dialogBtnSecondary: {
     flex: 1,
-    backgroundColor: 'rgba(32, 38, 47, 0.8)',
-    borderRadius: 8,
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(168, 171, 179, 0.25)',
+    backgroundColor: 'rgba(32, 38, 47, 0.6)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
   },
-  deleteCancelText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: COLORS.white,
+  dialogBtnSecondaryText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
   },
-  deleteConfirmButton: {
+  dialogBtnPrimary: {
     flex: 1,
-    backgroundColor: COLORS.errorLight,
-    borderRadius: 8,
+    height: 46,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
   },
-  deleteConfirmText: {
-    fontSize: 15,
+  dialogBtnPrimaryText: {
+    fontSize: 14,
     fontWeight: '700',
     color: COLORS.white,
+    textAlign: 'center',
   },
 });
 
