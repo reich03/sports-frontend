@@ -44,10 +44,12 @@ const F1EventManagement = ({ navigation }) => {
 
   const [formData, setFormData] = useState({
     name: '', season: String(new Date().getFullYear()), circuit: '', country: '',
-    event_date: new Date().toISOString(), grid_size: '20', league_id: '', tournament_id: '',
+    event_date: new Date().toISOString(), pole_lock_date: '', grid_size: '20', league_id: '', tournament_id: '',
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
+  const [showPoleDatePicker, setShowPoleDatePicker] = useState(false);
+  const [showPoleTimePicker, setShowPoleTimePicker] = useState(false);
 
   const [gridSelection, setGridSelection] = useState(new Set());
   const [resultForm, setResultForm] = useState({
@@ -87,7 +89,7 @@ const F1EventManagement = ({ navigation }) => {
   const resetForm = () => {
     setFormData({
       name: '', season: String(new Date().getFullYear()), circuit: '', country: '',
-      event_date: new Date().toISOString(), grid_size: '20', league_id: '', tournament_id: '',
+      event_date: new Date().toISOString(), pole_lock_date: '', grid_size: '20', league_id: '', tournament_id: '',
     });
   };
 
@@ -101,6 +103,7 @@ const F1EventManagement = ({ navigation }) => {
       circuit: ev.circuit || '',
       country: ev.country || '',
       event_date: ev.event_date || new Date().toISOString(),
+      pole_lock_date: ev.pole_lock_date || '',
       grid_size: String(ev.grid_size || 20),
       league_id: ev.league_id || '',
       tournament_id: ev.tournament_id || '',
@@ -114,6 +117,7 @@ const F1EventManagement = ({ navigation }) => {
     circuit: formData.circuit.trim() || null,
     country: formData.country.trim() || null,
     event_date: formData.event_date,
+    pole_lock_date: formData.pole_lock_date || null,
     grid_size: parseInt(formData.grid_size, 10) || 20,
     league_id: formData.league_id || null,
     tournament_id: formData.tournament_id || null,
@@ -278,8 +282,14 @@ const F1EventManagement = ({ navigation }) => {
             <Text style={styles.eventName} numberOfLines={1}>{ev.name}</Text>
             <View style={styles.eventMeta}>
               <Ionicons name="calendar-outline" size={12} color={COLORS.textSecondary} />
-              <Text style={styles.eventMetaText}>{formatDateTime(ev.event_date)}</Text>
+              <Text style={styles.eventMetaText}>Carrera: {formatDateTime(ev.event_date)}</Text>
             </View>
+            {ev.pole_lock_date ? (
+              <View style={styles.eventMeta}>
+                <Ionicons name="flash-outline" size={12} color={COLORS.textSecondary} />
+                <Text style={styles.eventMetaText}>Cierre pole: {formatDateTime(ev.pole_lock_date)}</Text>
+              </View>
+            ) : null}
             <View style={styles.eventMeta}>
               <Text style={styles.eventBadge}>Temp. {ev.season}</Text>
               {ev.circuit && <Text style={styles.eventMetaText}>{ev.circuit}</Text>}
@@ -330,6 +340,26 @@ const F1EventManagement = ({ navigation }) => {
     }
   };
 
+  const poleLockBase = formData.pole_lock_date ? new Date(formData.pole_lock_date) : new Date(formData.event_date);
+
+  const onPoleDateChange = (_e, val) => {
+    setShowPoleDatePicker(Platform.OS === 'ios');
+    if (val) {
+      const current = formData.pole_lock_date ? new Date(formData.pole_lock_date) : new Date(formData.event_date);
+      val.setHours(current.getHours(), current.getMinutes());
+      setFormData({ ...formData, pole_lock_date: val.toISOString() });
+    }
+  };
+
+  const onPoleTimeChange = (_e, val) => {
+    setShowPoleTimePicker(Platform.OS === 'ios');
+    if (val) {
+      const current = formData.pole_lock_date ? new Date(formData.pole_lock_date) : new Date(formData.event_date);
+      current.setHours(val.getHours(), val.getMinutes());
+      setFormData({ ...formData, pole_lock_date: current.toISOString() });
+    }
+  };
+
   const renderEventForm = () => (
     <>
       <View style={styles.formGroup}>
@@ -365,7 +395,7 @@ const F1EventManagement = ({ navigation }) => {
         </View>
       </View>
       <View style={styles.formGroup}>
-        <Text style={styles.label}>Fecha y hora *</Text>
+        <Text style={styles.label}>Fecha y hora de la carrera *</Text>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           <TouchableOpacity style={[styles.input, styles.dateBtn]} onPress={() => setShowDatePicker(true)}>
             <Ionicons name="calendar-outline" size={16} color={COLORS.primary} />
@@ -381,6 +411,44 @@ const F1EventManagement = ({ navigation }) => {
         )}
         {showTimePicker && (
           <DateTimePicker mode="time" value={new Date(formData.event_date)} onChange={onTimeChange} display={Platform.OS === 'ios' ? 'spinner' : 'default'} is24Hour />
+        )}
+      </View>
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>Cierre predicción Pole (clasificación)</Text>
+        <Text style={styles.helperText}>
+          Opcional. Ej: sábado 9:00 AM. Si no se define, la pole cierra junto con la carrera.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+          <TouchableOpacity style={[styles.input, styles.dateBtn]} onPress={() => setShowPoleDatePicker(true)}>
+            <Ionicons name="flash-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.dateText}>
+              {formData.pole_lock_date
+                ? new Date(formData.pole_lock_date).toLocaleDateString('es-ES')
+                : 'Sin definir'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.input, styles.dateBtn]} onPress={() => setShowPoleTimePicker(true)}>
+            <Ionicons name="time-outline" size={16} color={COLORS.primary} />
+            <Text style={styles.dateText}>
+              {formData.pole_lock_date
+                ? new Date(formData.pole_lock_date).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+                : '--:--'}
+            </Text>
+          </TouchableOpacity>
+          {formData.pole_lock_date ? (
+            <TouchableOpacity
+              style={[styles.input, styles.dateBtn, { width: 44, justifyContent: 'center' }]}
+              onPress={() => setFormData({ ...formData, pole_lock_date: '' })}
+            >
+              <Ionicons name="close" size={18} color={COLORS.error} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {showPoleDatePicker && (
+          <DateTimePicker mode="date" value={poleLockBase} onChange={onPoleDateChange} display={Platform.OS === 'ios' ? 'spinner' : 'default'} />
+        )}
+        {showPoleTimePicker && (
+          <DateTimePicker mode="time" value={poleLockBase} onChange={onPoleTimeChange} display={Platform.OS === 'ios' ? 'spinner' : 'default'} is24Hour />
         )}
       </View>
       <View style={styles.formGroup}>
@@ -556,14 +624,12 @@ const F1EventManagement = ({ navigation }) => {
         )}
       </ScrollView>
 
-      {/* FAB - Create Event */}
       <TouchableOpacity style={styles.fab} onPress={openCreate} activeOpacity={0.85}>
         <LinearGradient colors={[COLORS.primary, COLORS.primaryDark]} style={styles.fabGradient}>
           <Ionicons name="add" size={32} color={COLORS.backgroundDark} />
         </LinearGradient>
       </TouchableOpacity>
 
-      {/* Create Modal */}
       <Modal visible={showCreateModal} transparent animationType="slide" onRequestClose={() => setShowCreateModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { width: '92%' }]}>
@@ -582,7 +648,6 @@ const F1EventManagement = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Edit Modal */}
       <Modal visible={showEditModal} transparent animationType="slide" onRequestClose={() => setShowEditModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { width: '92%' }]}>
@@ -601,7 +666,6 @@ const F1EventManagement = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* Delete Modal */}
       <Modal visible={showDeleteModal} transparent animationType="fade" onRequestClose={() => setShowDeleteModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalCard, { width: 340 }]}>
@@ -631,7 +695,6 @@ const F1EventManagement = ({ navigation }) => {
   );
 };
 
-// Componente auxiliar: campo con dropdown para seleccionar un piloto dentro de las posiciones actuales
 const DriverSelectField = ({ label, value, options, driversById, onSelect }) => {
   const [open, setOpen] = useState(false);
   const selected = driversById[value];

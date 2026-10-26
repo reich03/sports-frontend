@@ -294,7 +294,7 @@ const HomeScreen = ({ navigation }) => {
           activeOpacity={0.88}
         >
           <ImageBackground
-            source={require('../../../assets/Todo-listo-para-el-sorteo-de-la-Copa-Mundial-de-la-FIFA.webp')}
+            source={require('../../../assets/fondo_torneos.png')}
             style={styles.mundialImageBg}
             imageStyle={{ borderRadius: 16 }}
             resizeMode="cover"

@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { COLORS } from '../constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const WC_IMAGE = require('../../assets/Todo-listo-para-el-sorteo-de-la-Copa-Mundial-de-la-FIFA.webp');
+const WC_IMAGE = require('../../assets/fondo_torneos.png');
 const LOGO_HORIZONTAL = require('../../assets/logo_horizontal_blanco.png');
 const LOGO_MUNDIAL = require('../../assets/logo_mundial.png');
 
@@ -138,7 +138,7 @@ const SplashScreen = () => {
           <Text style={styles.tagline}>Domina tus predicciones deportivas</Text>
 
           <View style={styles.mundialChip}>
-            <Text style={styles.mundialChipText}>FIFA WORLD CUP 2026</Text>
+            <Text style={styles.mundialChipText}>POLLA MUNDIAL 2026</Text>
             <Text style={styles.flagsInline}>🇲🇽 🇺🇸 🇨🇦</Text>
           </View>
 

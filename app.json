@@ -2,7 +2,7 @@
   "expo": {
     "name": "Master Sport",
     "slug": "mastersports",
-    "version": "1.0.3",
+    "version": "1.0.6",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "icon": "./assets/IconoFondoBlanco.png",
@@ -17,9 +17,11 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.mastersport.app",
-      "buildNumber": "1",
+      "buildNumber": "4",
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "Master Sport necesita acceso a tus fotos para que puedas elegir y actualizar tu imagen de perfil.",
+        "NSCameraUsageDescription": "Master Sport necesita acceso a la cámara para que puedas tomar una foto de perfil."
       }
     },
     "android": {
@@ -28,7 +30,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.mastersport.app",
-      "versionCode": 4,
+      "versionCode": 7,
       "softwareKeyboardLayoutMode": "pan"
     },
     "web": {
@@ -42,7 +44,24 @@
     "owner": "reich0319",
     "plugins": [
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Master Sport necesita acceso a tus fotos para que puedas elegir y actualizar tu imagen de perfil.",
+          "cameraPermission": "Master Sport necesita acceso a la cámara para que puedas tomar una foto de perfil."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "buildToolsVersion": "36.0.0"
+          }
+        }
+      ]
     ]
   }
 }

@@ -360,6 +360,11 @@ export const userService = {
     const response = await api.delete(`/users/${userId}`);
     return response.data;
   },
+
+  deleteMyAccount: async () => {
+    const response = await api.delete('/users/me');
+    return response.data;
+  },
   
   getUserStats: async (userId) => {
     const response = await api.get(`/users/${userId}/stats`);

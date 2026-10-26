@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, StatusBar,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, StatusBar, Modal, Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -20,6 +20,39 @@ const formatDate = (d) => {
   return dt.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' });
 };
 
+const BdItem = ({ C, styles, label, value, icon, color }) => (
+  <View style={styles.bdItem}>
+    <View style={[styles.bdIcon, { backgroundColor: `${color || C.primary}22` }]}>
+      <Ionicons name={icon} size={16} color={color || C.primary} />
+    </View>
+    <Text style={styles.bdLabel}>{label}</Text>
+    <Text style={[styles.bdValue, { color: color || C.primary }]}>{value} pts</Text>
+  </View>
+);
+
+const PointsBreakdown = ({ C, styles, bd, totalPoints }) => (
+  <>
+    <View style={styles.totalCard}>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.totalLabel}>Puntaje en este GP</Text>
+        <Text style={styles.totalPoints}>{totalPoints} <Text style={styles.totalPointsSm}>pts</Text></Text>
+      </View>
+      <View style={styles.totalIcon}>
+        <Ionicons name="trophy" size={32} color={C.primary} />
+      </View>
+    </View>
+    <View style={styles.breakdownGrid}>
+      <BdItem C={C} styles={styles} label="Exact Pos" value={bd.exact_position || 0} icon="checkmark-circle" />
+      <BdItem C={C} styles={styles} label="Top 10" value={bd.top10_hit || 0} icon="podium" color="#22c55e" />
+      <BdItem C={C} styles={styles} label="Podio" value={bd.podium_hit || 0} icon="trophy" color="#eab308" />
+      <BdItem C={C} styles={styles} label="Pole" value={bd.pole || 0} icon="flash" />
+      <BdItem C={C} styles={styles} label="Vuelta Rápida" value={bd.fastest_lap || 0} icon="stopwatch" />
+      <BdItem C={C} styles={styles} label="Piloto del Día" value={bd.driver_of_the_day || 0} icon="star" />
+      <BdItem C={C} styles={styles} label="Abandonos" value={bd.retirements || 0} icon="warning" color={C.error} />
+    </View>
+  </>
+);
+
 export default function F1ResultsScreen({ navigation, route }) {
   const { eventId } = route.params;
   const insets = useSafeAreaInsets();
@@ -32,8 +65,9 @@ export default function F1ResultsScreen({ navigation, route }) {
   const [drivers, setDrivers] = useState([]);
   const [myPred, setMyPred] = useState(null);
   const [leaderboard, setLeaderboard] = useState([]);
-  const [tab, setTab] = useState('mine'); // 'mine' | 'leaderboard'
+  const [tab, setTab] = useState('mine');
   const [loading, setLoading] = useState(true);
+  const [selectedEntry, setSelectedEntry] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -91,9 +125,8 @@ export default function F1ResultsScreen({ navigation, route }) {
     const inPodiumPred = predIdx >= 0 && predIdx < 3;
     const isPodium = idx < 3;
 
-    // Badges
     const badges = [];
-    if (predictedHere) badges.push({ label: `Exact Pos (${bd.exact_position ? '5' : ''})`, color: C.primary });
+    if (predictedHere) badges.push({ label: 'Exact Pos', color: C.primary });
     if (idx < 10 && inTop10Pred && !predictedHere) badges.push({ label: 'Top 10', color: '#22c55e' });
     if (isPodium && inPodiumPred && !predictedHere) badges.push({ label: 'Podium', color: '#eab308' });
 
@@ -120,6 +153,40 @@ export default function F1ResultsScreen({ navigation, route }) {
     );
   };
 
+  const renderLeaderboardRow = (entry, idx) => {
+    const displayName = entry.user?.username || 'Usuario';
+    const pending = !entry.is_processed;
+    return (
+      <TouchableOpacity
+        key={entry.id}
+        style={styles.lbRow}
+        activeOpacity={0.85}
+        onPress={() => setSelectedEntry(entry)}
+      >
+        <Text style={[styles.lbPos, idx < 3 && { color: idx === 0 ? '#eab308' : idx === 1 ? '#94a3b8' : '#cd7f32' }]}>
+          {idx + 1}
+        </Text>
+        <View style={styles.lbAvatar}>
+          {entry.user?.avatar ? (
+            <Image source={{ uri: getPhotoUri(entry.user.avatar) }} style={{ width: '100%', height: '100%' }} />
+          ) : (
+            <Ionicons name="person" size={18} color={C.primary} />
+          )}
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.lbName} numberOfLines={1}>{displayName}</Text>
+          {pending ? (
+            <Text style={styles.lbPending}>Pendiente de procesar</Text>
+          ) : (
+            <Text style={styles.lbHint}>Toca para ver desglose</Text>
+          )}
+        </View>
+        <Text style={styles.lbPoints}>{pending ? '—' : `${entry.points_earned} pts`}</Text>
+        <Ionicons name="chevron-forward" size={16} color={C.textSecondary} />
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar barStyle={palette.statusBar} backgroundColor={C.background} />
@@ -140,7 +207,6 @@ export default function F1ResultsScreen({ navigation, route }) {
         <Text style={styles.dateText}>{formatDate(event.event_date)}</Text>
       </View>
 
-      {/* Tabs */}
       <View style={styles.tabsRow}>
         <TouchableOpacity style={[styles.tab, tab === 'mine' && styles.tabActive]} onPress={() => setTab('mine')}>
           <Text style={[styles.tabText, tab === 'mine' && styles.tabTextActive]}>Mis Puntos</Text>
@@ -150,8 +216,12 @@ export default function F1ResultsScreen({ navigation, route }) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: insets.bottom + 32 }}>
-        {!result ? (
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 12, paddingBottom: insets.bottom + 32 }}
+        showsVerticalScrollIndicator
+      >
+        {!result && tab === 'mine' ? (
           <View style={styles.emptyCard}>
             <Ionicons name="hourglass-outline" size={40} color={C.textSecondary} />
             <Text style={styles.emptyTitle}>Resultados pendientes</Text>
@@ -159,37 +229,16 @@ export default function F1ResultsScreen({ navigation, route }) {
           </View>
         ) : tab === 'mine' ? (
           <>
-            {/* Tarjeta de puntos totales */}
-            <View style={styles.totalCard}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.totalLabel}>Tu puntaje en este GP</Text>
-                <Text style={styles.totalPoints}>{totalPoints} <Text style={styles.totalPointsSm}>pts</Text></Text>
-              </View>
-              <View style={styles.totalIcon}>
-                <Ionicons name="trophy" size={32} color={C.primary} />
-              </View>
-            </View>
-
-            {/* Desglose por categoría */}
-            <View style={styles.breakdownGrid}>
-              <BdItem C={C} styles={styles} label="Exact Pos" value={bd.exact_position || 0} icon="checkmark-circle" />
-              <BdItem C={C} styles={styles} label="Top 10" value={bd.top10_hit || 0} icon="podium" color="#22c55e" />
-              <BdItem C={C} styles={styles} label="Podio" value={bd.podium_hit || 0} icon="trophy" color="#eab308" />
-              <BdItem C={C} styles={styles} label="Pole" value={bd.pole || 0} icon="flash" />
-              <BdItem C={C} styles={styles} label="Vuelta Rápida" value={bd.fastest_lap || 0} icon="stopwatch" />
-              <BdItem C={C} styles={styles} label="Piloto del Día" value={bd.driver_of_the_day || 0} icon="star" />
-              <BdItem C={C} styles={styles} label="Abandonos" value={bd.retirements || 0} icon="warning" color={C.error} />
-            </View>
-
-            {/* Resultados por posición */}
+            <PointsBreakdown C={C} styles={styles} bd={bd} totalPoints={totalPoints} />
             <Text style={styles.sectionTitle}>Resultados oficiales</Text>
             <View>
-              {(result.positions || []).map((driverId, idx) => renderResultRow(driverId, idx))}
+              {(result?.positions || []).map((driverId, idx) => renderResultRow(driverId, idx))}
             </View>
           </>
         ) : (
           <>
-            <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Ranking del evento</Text>
+            <Text style={[styles.sectionTitle, { marginTop: 4 }]}>Tabla de clasificación</Text>
+            <Text style={styles.sectionHint}>Toca a un participante para ver su desglose de puntos</Text>
             {leaderboard.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Ionicons name="people-outline" size={36} color={C.textSecondary} />
@@ -197,33 +246,47 @@ export default function F1ResultsScreen({ navigation, route }) {
                 <Text style={styles.emptySub}>Nadie ha hecho predicción para este evento aún.</Text>
               </View>
             ) : (
-              leaderboard.map((p, idx) => (
-                <View key={p.id} style={styles.lbRow}>
-                  <Text style={styles.lbPos}>{idx + 1}</Text>
-                  <View style={styles.lbAvatar}>
-                    {p.user?.avatar ? <Image source={{ uri: getPhotoUri(p.user.avatar) }} style={{ width: '100%', height: '100%' }} /> : <Ionicons name="person" size={18} color={C.primary} />}
-                  </View>
-                  <Text style={styles.lbName} numberOfLines={1}>{p.user?.name || 'Usuario'}</Text>
-                  <Text style={styles.lbPoints}>{p.points_earned} pts</Text>
-                </View>
-              ))
+              leaderboard.map((entry, idx) => renderLeaderboardRow(entry, idx))
             )}
           </>
         )}
       </ScrollView>
+
+      {/* Modal desglose de puntos al tocar en clasificación */}
+      <Modal visible={!!selectedEntry} transparent animationType="slide" onRequestClose={() => setSelectedEntry(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setSelectedEntry(null)}>
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>{selectedEntry?.user?.username || 'Usuario'}</Text>
+                <Text style={styles.modalSub}>Desglose de puntos · {event.name}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setSelectedEntry(null)}>
+                <Ionicons name="close" size={24} color={C.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ paddingBottom: 24 }} showsVerticalScrollIndicator>
+              {selectedEntry && !selectedEntry.is_processed ? (
+                <View style={styles.emptyCard}>
+                  <Ionicons name="time-outline" size={36} color={C.textSecondary} />
+                  <Text style={styles.emptyTitle}>Puntos pendientes</Text>
+                  <Text style={styles.emptySub}>Los puntos se calcularán cuando el admin cargue el resultado oficial.</Text>
+                </View>
+              ) : selectedEntry ? (
+                <PointsBreakdown
+                  C={C}
+                  styles={styles}
+                  bd={selectedEntry.points_breakdown || {}}
+                  totalPoints={selectedEntry.points_earned || 0}
+                />
+              ) : null}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
-
-const BdItem = ({ C, styles, label, value, icon, color }) => (
-  <View style={styles.bdItem}>
-    <View style={[styles.bdIcon, { backgroundColor: `${color || C.primary}22` }]}>
-      <Ionicons name={icon} size={16} color={color || C.primary} />
-    </View>
-    <Text style={styles.bdLabel}>{label}</Text>
-    <Text style={[styles.bdValue, { color: color || C.primary }]}>{value} pts</Text>
-  </View>
-);
 
 const createStyles = (C) => StyleSheet.create({
   container: { flex: 1, backgroundColor: C.background },
@@ -260,6 +323,7 @@ const createStyles = (C) => StyleSheet.create({
   bdValue: { fontWeight: '900', fontSize: 15 },
 
   sectionTitle: { color: C.text, fontSize: 15, fontWeight: '700', marginTop: 20, marginBottom: 10 },
+  sectionHint: { color: C.textSecondary, fontSize: 12, marginTop: -6, marginBottom: 10 },
   resRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10, borderRadius: 12, backgroundColor: C.cardDark, marginBottom: 6, borderWidth: 1, borderColor: `${C.primary}14` },
   resRowPodium: { borderColor: `${C.primary}55` },
   resPos: { color: C.textSecondary, fontWeight: '900', width: 30, fontSize: 13 },
@@ -273,6 +337,23 @@ const createStyles = (C) => StyleSheet.create({
   lbRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, backgroundColor: C.cardDark, marginBottom: 6, borderWidth: 1, borderColor: `${C.primary}14` },
   lbPos: { color: C.primary, fontWeight: '900', fontSize: 14, width: 26, textAlign: 'center' },
   lbAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: `${C.primary}22`, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  lbName: { color: C.text, fontWeight: '600', fontSize: 13, flex: 1 },
-  lbPoints: { color: C.primary, fontWeight: '900', fontSize: 14 },
+  lbName: { color: C.text, fontWeight: '600', fontSize: 13 },
+  lbHint: { color: C.textSecondary, fontSize: 10, marginTop: 2 },
+  lbPending: { color: C.warning, fontSize: 10, marginTop: 2 },
+  lbPoints: { color: C.primary, fontWeight: '900', fontSize: 14, minWidth: 52, textAlign: 'right' },
+
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'flex-end' },
+  modalCard: {
+    backgroundColor: C.cardDark,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    borderWidth: 1,
+    borderColor: `${C.primary}33`,
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
+  modalTitle: { color: C.text, fontSize: 18, fontWeight: '800' },
+  modalSub: { color: C.textSecondary, fontSize: 12, marginTop: 2 },
 });

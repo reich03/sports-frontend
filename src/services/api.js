@@ -12,6 +12,20 @@ const api = axios.create({
 
 console.log('🔧 API configurada con baseURL:', CONFIG.apiUrl);
 
+// Handler global que se dispara cuando la sesión expira (token 401).
+// Lo registra el AuthContext para poder cerrar sesión y mostrar el modal.
+let onSessionExpired = null;
+let sessionExpiredNotified = false;
+
+export const setSessionExpiredHandler = (handler) => {
+  onSessionExpired = handler;
+};
+
+// Reinicia el flag para que el modal pueda volver a mostrarse en una nueva sesión.
+export const resetSessionExpiredFlag = () => {
+  sessionExpiredNotified = false;
+};
+
 // Request interceptor to add token
 api.interceptors.request.use(
   async (config) => {
@@ -49,10 +63,20 @@ api.interceptors.response.use(
     }
     
     if (error.response?.status === 401) {
+      // Solo tratamos como "sesión expirada" si la request llevaba token,
+      // es decir, el usuario ya estaba autenticado. Así evitamos disparar
+      // el modal ante un 401 de login/credenciales inválidas.
+      const hadToken = !!error.config?.headers?.Authorization;
+
       // Token expired or invalid
       await AsyncStorage.removeItem('userToken');
       await AsyncStorage.removeItem('userData');
-      // Here you would navigate to login
+
+      if (hadToken && onSessionExpired && !sessionExpiredNotified) {
+        // Evita mostrar el modal varias veces si hay varias requests en paralelo
+        sessionExpiredNotified = true;
+        onSessionExpired();
+      }
     }
     return Promise.reject(error);
   }

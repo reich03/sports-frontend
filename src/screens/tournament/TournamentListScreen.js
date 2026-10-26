@@ -19,7 +19,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useThemeColors } from '../../hooks/useThemeColors';
 import tournamentService from '../../services/tournament.service';
 
-const WC_IMAGE = require('../../../assets/Todo-listo-para-el-sorteo-de-la-Copa-Mundial-de-la-FIFA.webp');
+const WC_IMAGE = require('../../../assets/fondo_torneos.png');
 
 const getStatusConfig = (C) => ({
   upcoming: { label: 'Próximamente', color: '#ffaa00', bg: 'rgba(255,170,0,0.15)', icon: 'time-outline' },
@@ -157,7 +157,7 @@ const TournamentCard = ({ tournament: t, onPress, styles, C }) => {
           >
             {isWorldCupTournament(t.name) && !t.image ? (
               <View style={styles.worldCupRibbon}>
-                <Text style={styles.worldCupRibbonText}>🇲🇽 🇺🇸 🇨🇦 Copa Mundial</Text>
+                <Text style={styles.worldCupRibbonText}>🇲🇽 🇺🇸 🇨🇦 Polla Mundial</Text>
               </View>
             ) : null}
             {cardBody}

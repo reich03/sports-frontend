@@ -411,7 +411,7 @@ const RoundManagement = ({ navigation }) => {
 
             {/* Info Row */}
             <View style={styles.roundInfoRow}>
-              <Ionicons name="calendar-outline" size={14} color={COLORS.textSecondary} />
+              <Ionicons name="calendar-outline" size={14} color={COLORS.white} />
               <Text style={styles.roundInfoText}>
                 {round.start_date 
                   ? `${new Date(round.start_date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' })}${round.end_date ? ` - ${new Date(round.end_date).toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })}` : ''}`
@@ -1325,7 +1325,7 @@ const styles = StyleSheet.create({
   },
   roundInfoText: {
     fontSize: 13,
-    color: COLORS.textSecondary,
+    color: COLORS.white,
     marginLeft: 6,
   },
   roundMetaRow: {

@@ -56,7 +56,7 @@ export default function TeamDetailScreen({ navigation, route }) {
   }, []);
 
   const flag = FLAGS[team.country] || '🏳️';
-  const confederation = CONFEDERATIONS[team.country] || 'FIFA';
+  const confederation = CONFEDERATIONS[team.country] || 'INTL';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>

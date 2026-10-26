@@ -29,6 +29,8 @@ const ProfileScreen = ({ navigation }) => {
   const { isDark, palette, setDarkMode } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const [logoutModal, setLogoutModal] = useState(false);
+  const [deleteAccountModal, setDeleteAccountModal] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   
   // Edit Profile Modal
   const [editProfileModal, setEditProfileModal] = useState(false);
@@ -85,6 +87,29 @@ const ProfileScreen = ({ navigation }) => {
   const confirmLogout = () => {
     setLogoutModal(false);
     logout();
+  };
+
+  const handleDeleteAccount = () => {
+    setDeleteAccountModal(true);
+  };
+
+  const confirmDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      await userService.deleteMyAccount();
+      setDeleteAccountModal(false);
+      await logout();
+    } catch (error) {
+      setDeleteAccountModal(false);
+      setStatusModal({
+        visible: true,
+        type: 'error',
+        title: 'No se pudo eliminar la cuenta',
+        message: error.response?.data?.error?.message || 'Inténtalo de nuevo más tarde.',
+      });
+    } finally {
+      setDeletingAccount(false);
+    }
   };
   
   // Edit Profile Functions
@@ -462,13 +487,18 @@ const ProfileScreen = ({ navigation }) => {
           </View>
         </View>
 
-        {/* Sign Out Button */}
+        {/* Sign Out / Delete Account */}
         <TouchableOpacity style={styles.signOutButton} onPress={handleLogout}>
           <Text style={styles.signOutText}>Cerrar Sesión</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity style={styles.deleteAccountButton} onPress={handleDeleteAccount}>
+          <Ionicons name="trash-outline" size={18} color="#ef4444" />
+          <Text style={styles.deleteAccountText}>Eliminar mi cuenta</Text>
+        </TouchableOpacity>
+
         {/* App Version */}
-        <Text style={[styles.appVersion, { color: palette.textMuted }]}>MASTERSPORT v1.0.0</Text>
+        <Text style={[styles.appVersion, { color: palette.textMuted }]}>MASTERSPORT v1.0.6</Text>
       </ScrollView>
 
       {/* Logout Confirmation Modal */}
@@ -482,6 +512,18 @@ const ProfileScreen = ({ navigation }) => {
         onPrimaryPress={confirmLogout}
         onSecondaryPress={() => setLogoutModal(false)}
         onClose={() => setLogoutModal(false)}
+      />
+
+      <StatusModal
+        visible={deleteAccountModal}
+        type="error"
+        title="Eliminar cuenta"
+        message="Esta acción es permanente. Se borrarán tu perfil, predicciones y datos asociados. ¿Deseas continuar?"
+        primaryButtonText={deletingAccount ? 'Eliminando...' : 'Eliminar cuenta'}
+        secondaryButtonText="Cancelar"
+        onPrimaryPress={deletingAccount ? undefined : confirmDeleteAccount}
+        onSecondaryPress={() => !deletingAccount && setDeleteAccountModal(false)}
+        onClose={() => !deletingAccount && setDeleteAccountModal(false)}
       />
 
       {/* Edit Profile Modal */}
@@ -886,6 +928,24 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: 'rgba(239, 68, 68, 0.1)',
     alignItems: 'center',
+  },
+  deleteAccountButton: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 8,
+    paddingVertical: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  deleteAccountText: {
+    color: '#ef4444',
+    fontSize: 15,
+    fontWeight: '700',
   },
   signOutText: {
     fontSize: 16,

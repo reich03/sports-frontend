@@ -27,10 +27,17 @@ const formatTime = (d) => {
   return dt.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 };
 
-const isClosed = (event) => {
+const isRaceClosed = (event) => {
   if (!event) return true;
   if (event.status && event.status !== 'scheduled') return true;
   return Date.now() >= new Date(event.event_date).getTime();
+};
+
+const isPoleClosed = (event) => {
+  if (!event) return true;
+  if (event.status && event.status !== 'scheduled') return true;
+  const lockDate = event.pole_lock_date || event.event_date;
+  return Date.now() >= new Date(lockDate).getTime();
 };
 
 // Convierte HEX '#rrggbb' + alpha 0-255 a rgba
@@ -72,7 +79,9 @@ export default function F1PredictionScreen({ navigation, route }) {
   }, []);
 
   const gridSize = event?.grid_size || 20;
-  const locked = event ? isClosed(event) : false;
+  const raceLocked = event ? isRaceClosed(event) : false;
+  const poleLocked = event ? isPoleClosed(event) : false;
+  const footerHeight = 72 + insets.bottom;
 
   const load = useCallback(async () => {
     try {
@@ -124,7 +133,7 @@ export default function F1PredictionScreen({ navigation, route }) {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
   const openPositionPicker = (idx) => {
-    if (locked) return;
+    if (raceLocked) return;
     setPickerFor({ positionIndex: idx });
   };
 
@@ -143,7 +152,7 @@ export default function F1PredictionScreen({ navigation, route }) {
   };
 
   const removeFromPosition = (positionIndex) => {
-    if (locked) return;
+    if (raceLocked) return;
     setPositions((prev) => {
       const next = [...prev];
       next[positionIndex] = null;
@@ -159,7 +168,7 @@ export default function F1PredictionScreen({ navigation, route }) {
 
   const handleSave = async () => {
     if (!event) return;
-    if (isClosed(event)) {
+    if (isRaceClosed(event)) {
       showStatus('warning', 'Predicciones cerradas', 'Las predicciones para este evento ya están cerradas.');
       return;
     }
@@ -206,7 +215,7 @@ export default function F1PredictionScreen({ navigation, route }) {
     return (
       <ScaleDecorator>
         <Pressable
-          onLongPress={locked || !driver ? undefined : drag}
+          onLongPress={raceLocked || !driver ? undefined : drag}
           onPress={() => driver ? removeFromPosition(item.idx) : openPositionPicker(item.idx)}
           delayLongPress={140}
           style={[
@@ -228,7 +237,7 @@ export default function F1PredictionScreen({ navigation, route }) {
                   <Text style={styles.posDriverMeta}>#{driver.number}</Text>
                 )}
               </View>
-              {!locked && (
+              {!raceLocked && (
                 <Ionicons name="reorder-three" size={16} color={C.textSecondary} />
               )}
             </View>
@@ -256,7 +265,7 @@ export default function F1PredictionScreen({ navigation, route }) {
         style={styles.availAdd}
         onPress={() => {
           // asignar al primer slot vacío
-          if (locked) return;
+          if (raceLocked) return;
           const emptyIdx = positions.findIndex((p, i) => !p && i < gridSize);
           if (emptyIdx === -1) {
             showStatus('warning', 'Parrilla llena', 'Todos los slots ya tienen piloto. Toca una posición para reemplazarlo.');
@@ -285,15 +294,15 @@ export default function F1PredictionScreen({ navigation, route }) {
     const isForField = pickerFor && typeof pickerFor === 'string';
     const currentValue =
       pickerFor === 'pole' ? pole
-      : pickerFor === 'fastest' ? fastestLap
-      : pickerFor === 'dotd' ? dotd
-      : null;
+        : pickerFor === 'fastest' ? fastestLap
+          : pickerFor === 'dotd' ? dotd
+            : null;
 
     const title =
       pickerFor === 'pole' ? 'Pole position'
-      : pickerFor === 'fastest' ? 'Vuelta rápida'
-      : pickerFor === 'dotd' ? 'Piloto del día'
-      : `Piloto para P${(positionIndex || 0) + 1}`;
+        : pickerFor === 'fastest' ? 'Vuelta rápida'
+          : pickerFor === 'dotd' ? 'Piloto del día'
+            : `Piloto para P${(positionIndex || 0) + 1}`;
 
     const [q, setQ] = useState('');
     const list = useMemo(() => {
@@ -469,22 +478,32 @@ export default function F1PredictionScreen({ navigation, route }) {
         </TouchableOpacity>
       </View>
 
-      {locked && (
+      {raceLocked && (
         <View style={styles.lockedBanner}>
           <Ionicons name="lock-closed" size={14} color={C.warning} />
-          <Text style={styles.lockedText}>Predicciones cerradas — el evento ya comenzó</Text>
+          <Text style={styles.lockedText}>Predicciones cerradas — la carrera ya comenzó</Text>
+        </View>
+      )}
+      {!raceLocked && poleLocked && (
+        <View style={[styles.lockedBanner, { borderColor: C.primary, backgroundColor: `${C.primary}18` }]}>
+          <Ionicons name="flash" size={14} color={C.primary} />
+          <Text style={[styles.lockedText, { color: C.primary }]}>
+            Pole position cerrada (clasificación). Aún puedes editar posiciones y otras menciones.
+          </Text>
         </View>
       )}
 
       {tab === 'picks' ? (
-        <View style={styles.pickBody}>
+        <View style={[styles.pickBody, { paddingBottom: raceLocked ? insets.bottom : footerHeight }]}>
           {/* Columna izquierda: pilotos disponibles */}
           <View style={styles.leftCol}>
             <Text style={styles.colTitle}>Pilotos Disponibles</Text>
             <Text style={styles.colSub}>Toca + para asignarlo a la siguiente posición libre</Text>
             <ScrollView
-              contentContainerStyle={{ paddingBottom: 20 }}
-              showsVerticalScrollIndicator={false}
+              style={styles.colScroll}
+              contentContainerStyle={{ paddingBottom: 16 }}
+              showsVerticalScrollIndicator
+              nestedScrollEnabled
             >
               {availableList.length === 0 ? (
                 <View style={styles.emptyAvail}>
@@ -502,13 +521,14 @@ export default function F1PredictionScreen({ navigation, route }) {
             <Text style={styles.colTitle}>Predicción de Posiciones</Text>
             <Text style={styles.colSub}>{usedCount}/{gridSize} · Mantén pulsado para reordenar</Text>
             <DraggableFlatList
+              style={styles.colScroll}
               data={positionData}
               keyExtractor={(it) => it.key}
               renderItem={renderPositionItem}
               onDragEnd={handleReorderPositions}
               activationDistance={8}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 16 }}
+              showsVerticalScrollIndicator
             />
           </View>
         </View>
@@ -542,12 +562,12 @@ export default function F1PredictionScreen({ navigation, route }) {
           {/* Menciones */}
           <Text style={[styles.sectionTitle, { marginTop: 22 }]}>Menciones especiales</Text>
           <View style={styles.mentionsList}>
-            <MentionRow C={C} styles={styles} icon="trophy" label="Pole Position" driver={driversById[pole]} disabled={locked} onPress={() => setPickerFor('pole')} />
-            <MentionRow C={C} styles={styles} icon="flash" label="Vuelta Rápida" driver={driversById[fastestLap]} disabled={locked} onPress={() => setPickerFor('fastest')} />
-            <MentionRow C={C} styles={styles} icon="star" label="Piloto del Día" driver={driversById[dotd]} disabled={locked} onPress={() => setPickerFor('dotd')} />
+            <MentionRow C={C} styles={styles} icon="trophy" label="Pole Position" driver={driversById[pole]} disabled={poleLocked || raceLocked} locked={poleLocked} onPress={() => setPickerFor('pole')} />
+            <MentionRow C={C} styles={styles} icon="flash" label="Vuelta Rápida" driver={driversById[fastestLap]} disabled={raceLocked} onPress={() => setPickerFor('fastest')} />
+            <MentionRow C={C} styles={styles} icon="star" label="Piloto del Día" driver={driversById[dotd]} disabled={raceLocked} onPress={() => setPickerFor('dotd')} />
             <TouchableOpacity
               style={styles.mentionRow}
-              disabled={locked}
+              disabled={raceLocked}
               onPress={() => setRetirementsModal(true)}
             >
               <View style={[styles.mentionIcon, { backgroundColor: withAlpha(C.error, 0.15) }]}>
@@ -587,7 +607,7 @@ export default function F1PredictionScreen({ navigation, route }) {
       )}
 
       {/* Footer con guardar */}
-      {!locked && (
+      {!raceLocked && (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
           <View style={{ flex: 1 }}>
             <Text style={styles.footerLabel}>{usedCount}/{gridSize} pilotos · {tab === 'summary' ? 'Confirma tu predicción' : 'Elige y ordena'}</Text>
@@ -623,18 +643,22 @@ export default function F1PredictionScreen({ navigation, route }) {
   );
 }
 
-const MentionRow = ({ C, styles, icon, label, driver, disabled, onPress }) => (
-  <TouchableOpacity style={styles.mentionRow} disabled={disabled} onPress={onPress}>
+const MentionRow = ({ C, styles, icon, label, driver, disabled, locked, onPress }) => (
+  <TouchableOpacity style={[styles.mentionRow, locked && { opacity: 0.75 }]} disabled={disabled} onPress={onPress}>
     <View style={[styles.mentionIcon, { backgroundColor: withAlpha(C.primary, 0.15) }]}>
       <Ionicons name={icon} size={18} color={C.primary} />
     </View>
     <View style={{ flex: 1 }}>
-      <Text style={styles.mentionLabel}>{label}</Text>
+      <Text style={styles.mentionLabel}>{label}{locked ? ' 🔒' : ''}</Text>
       <Text style={styles.mentionValue} numberOfLines={1}>
         {driver ? `${driver.number != null ? `#${driver.number} ` : ''}${driver.name}` : 'Sin selección'}
       </Text>
     </View>
-    <Ionicons name="chevron-forward" size={18} color={C.textSecondary} />
+    {locked ? (
+      <Ionicons name="lock-closed" size={16} color={C.textSecondary} />
+    ) : (
+      <Ionicons name="chevron-forward" size={18} color={C.textSecondary} />
+    )}
   </TouchableOpacity>
 );
 
@@ -661,9 +685,10 @@ const createStyles = (C) => StyleSheet.create({
   lockedBanner: { marginHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: `${C.warning}18`, borderColor: C.warning, borderWidth: 1, borderRadius: 12, padding: 10, marginBottom: 8 },
   lockedText: { color: C.warning, fontSize: 12, fontWeight: '600' },
 
-  pickBody: { flex: 1, flexDirection: 'row', paddingHorizontal: 10, gap: 8 },
-  leftCol: { flex: 1.05 },
-  rightCol: { flex: 1 },
+  pickBody: { flex: 1, flexDirection: 'row', paddingHorizontal: 10, gap: 8, minHeight: 0 },
+  leftCol: { flex: 1.05, minHeight: 0 },
+  rightCol: { flex: 1, minHeight: 0 },
+  colScroll: { flex: 1 },
   colTitle: { color: C.text, fontWeight: '700', fontSize: 13, marginBottom: 2 },
   colSub: { color: C.textSecondary, fontSize: 10.5, marginBottom: 8 },
 

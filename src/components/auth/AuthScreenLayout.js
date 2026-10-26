@@ -11,7 +11,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { authStyles } from './authStyles';
 
-const WC_IMAGE = require('../../../assets/Todo-listo-para-el-sorteo-de-la-Copa-Mundial-de-la-FIFA.webp');
+const WC_IMAGE = require('../../../assets/fondo_torneos.png');
 
 const AuthScreenLayout = ({ children, header, footer, scrollable = true }) => {
   const insets = useSafeAreaInsets();

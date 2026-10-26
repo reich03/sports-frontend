@@ -1,6 +1,7 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { authService } from '../services';
+import { authService, userService } from '../services';
+import { setSessionExpiredHandler, resetSessionExpiredFlag } from '../services/api';
 
 const AuthContext = createContext({});
 
@@ -8,11 +9,31 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
 
   // Check if user is logged in on mount
   useEffect(() => {
     checkAuth();
   }, []);
+
+  // Registrar el handler global que dispara el interceptor de axios cuando
+  // una request falla con 401 (token vencido). Cierra la sesión y muestra el modal.
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      setUser(null);
+      setIsAuthenticated(false);
+      setSessionExpired(true);
+    });
+    return () => setSessionExpiredHandler(null);
+  }, []);
+
+  // Cierra el modal de sesión expirada y limpia el estado para una nueva sesión.
+  const dismissSessionExpired = async () => {
+    setSessionExpired(false);
+    resetSessionExpiredFlag();
+    await AsyncStorage.removeItem('userToken');
+    await AsyncStorage.removeItem('userData');
+  };
 
   const checkAuth = async () => {
     try {
@@ -71,6 +92,8 @@ export const AuthProvider = ({ children }) => {
       
       setUser(user);
       setIsAuthenticated(true);
+      setSessionExpired(false);
+      resetSessionExpiredFlag();
       console.log('✅ Login exitoso, usuario autenticado');
       
       return { success: true };
@@ -106,6 +129,8 @@ export const AuthProvider = ({ children }) => {
       
       setUser(user);
       setIsAuthenticated(true);
+      setSessionExpired(false);
+      resetSessionExpiredFlag();
       
       return { success: true };
     } catch (error) {
@@ -134,18 +159,39 @@ export const AuthProvider = ({ children }) => {
     await AsyncStorage.setItem('userData', JSON.stringify({ ...user, ...userData }));
   };
 
+  // Elimina permanentemente la cuenta del usuario autenticado y cierra la sesión.
+  // Requerido por la App Store (Guideline 5.1.1(v)).
+  const deleteAccount = async () => {
+    if (!user?.id) {
+      throw new Error('No hay un usuario autenticado para eliminar.');
+    }
+    // Se realiza la petición con el token aún válido.
+    await userService.deleteUser(user.id);
+    // Limpieza local de la sesión (sin llamar al endpoint de logout,
+    // ya que la cuenta ya no existe en el servidor).
+    await AsyncStorage.removeItem('userToken');
+    await AsyncStorage.removeItem('userData');
+    resetSessionExpiredFlag();
+    setUser(null);
+    setIsAuthenticated(false);
+    setSessionExpired(false);
+  };
+
   return (
     <AuthContext.Provider
       value={{
         user,
         loading,
         isAuthenticated,
+        sessionExpired,
+        dismissSessionExpired,
         login,
         register,
         verifyOTP,
         logout,
         updateUser,
         refreshUser,
+        deleteAccount,
       }}
     >
       {children}
