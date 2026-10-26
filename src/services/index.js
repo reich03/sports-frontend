@@ -608,4 +608,14 @@ export const f1EventService = {
     const response = await api.get(`/f1-events/${eventId}/leaderboard`);
     return response.data;
   },
+
+  joinEvent: async (eventId, body = {}) => {
+    const response = await api.post(`/f1-events/${eventId}/join`, body);
+    return response.data;
+  },
+
+  joinByCode: async (accessCode) => {
+    const response = await api.post('/f1-events/join-by-code', { access_code: accessCode });
+    return response.data;
+  },
 };

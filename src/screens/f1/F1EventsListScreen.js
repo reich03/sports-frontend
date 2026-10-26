@@ -74,7 +74,9 @@ export default function F1EventsListScreen({ navigation, route }) {
         <View style={styles.cardHeader}>
           <View style={styles.seasonBadge}>
             <Ionicons name="flag" size={11} color={C.primary} />
-            <Text style={styles.seasonBadgeText}>F1 · Temp. {item.season}</Text>
+            <Text style={styles.seasonBadgeText}>
+              F1 · Temp. {item.season}{item.type === 'private' ? ' · Privado' : ''}
+            </Text>
           </View>
           {finished ? (
             <View style={[styles.statusPill, { backgroundColor: `${C.success || '#22c55e'}22`, borderColor: C.success || '#22c55e' }]}>
@@ -127,7 +129,9 @@ export default function F1EventsListScreen({ navigation, route }) {
           <Ionicons name="arrow-back" size={24} color={C.text} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Fórmula 1</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={() => navigation.navigate('F1EventJoin')} style={styles.joinBtn}>
+          <Ionicons name="key-outline" size={20} color={C.primary} />
+        </TouchableOpacity>
       </View>
 
       <View style={styles.tabs}>
@@ -175,6 +179,7 @@ const createStyles = (C) => StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 14 },
   backBtn: { width: 40, height: 40, justifyContent: 'center' },
   headerTitle: { flex: 1, textAlign: 'center', color: C.text, fontSize: 18, fontWeight: 'bold' },
+  joinBtn: { width: 40, height: 40, alignItems: 'flex-end', justifyContent: 'center' },
   tabs: { flexDirection: 'row', paddingHorizontal: 12, marginBottom: 4, gap: 8 },
   tab: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

@@ -45,6 +45,7 @@ const F1EventManagement = ({ navigation }) => {
   const [formData, setFormData] = useState({
     name: '', season: String(new Date().getFullYear()), circuit: '', country: '',
     event_date: new Date().toISOString(), pole_lock_date: '', grid_size: '20', league_id: '', tournament_id: '',
+    type: 'public', access_code: '', max_participants: '',
   });
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showTimePicker, setShowTimePicker] = useState(false);
@@ -90,6 +91,7 @@ const F1EventManagement = ({ navigation }) => {
     setFormData({
       name: '', season: String(new Date().getFullYear()), circuit: '', country: '',
       event_date: new Date().toISOString(), pole_lock_date: '', grid_size: '20', league_id: '', tournament_id: '',
+      type: 'public', access_code: '', max_participants: '',
     });
   };
 
@@ -107,6 +109,9 @@ const F1EventManagement = ({ navigation }) => {
       grid_size: String(ev.grid_size || 20),
       league_id: ev.league_id || '',
       tournament_id: ev.tournament_id || '',
+      type: ev.type || 'public',
+      access_code: ev.access_code || '',
+      max_participants: ev.max_participants != null ? String(ev.max_participants) : '',
     });
     setShowEditModal(true);
   };
@@ -122,6 +127,9 @@ const F1EventManagement = ({ navigation }) => {
     league_id: formData.league_id || null,
     tournament_id: formData.tournament_id || null,
     sport_id: f1Sport?.id,
+    type: formData.type || 'public',
+    access_code: formData.type === 'private' ? (formData.access_code.trim().toUpperCase() || undefined) : null,
+    max_participants: formData.max_participants ? parseInt(formData.max_participants, 10) : null,
   });
 
   const handleCreate = async () => {
@@ -290,6 +298,12 @@ const F1EventManagement = ({ navigation }) => {
                 <Text style={styles.eventMetaText}>Cierre pole: {formatDateTime(ev.pole_lock_date)}</Text>
               </View>
             ) : null}
+            {ev.type === 'private' ? (
+              <View style={styles.eventMeta}>
+                <Ionicons name="lock-closed-outline" size={12} color={COLORS.textSecondary} />
+                <Text style={styles.eventMetaText}>Privado · Código: {ev.access_code || '—'}</Text>
+              </View>
+            ) : null}
             <View style={styles.eventMeta}>
               <Text style={styles.eventBadge}>Temp. {ev.season}</Text>
               {ev.circuit && <Text style={styles.eventMetaText}>{ev.circuit}</Text>}
@@ -451,6 +465,48 @@ const F1EventManagement = ({ navigation }) => {
           <DateTimePicker mode="time" value={poleLockBase} onChange={onPoleTimeChange} display={Platform.OS === 'ios' ? 'spinner' : 'default'} is24Hour />
         )}
       </View>
+      <View style={styles.formGroup}>
+        <Text style={styles.label}>Visibilidad del evento</Text>
+        <View style={styles.chipsWrap}>
+          {['public', 'private'].map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.chip, formData.type === t && styles.chipActive]}
+              onPress={() => setFormData({ ...formData, type: t })}
+            >
+              <Text style={[styles.chipText, formData.type === t && styles.chipTextActive]}>
+                {t === 'public' ? 'Público' : 'Privado'}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+      {formData.type === 'private' ? (
+        <>
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Código de acceso</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Ej: F1PRIV26 (opcional, se genera solo)"
+              placeholderTextColor={`${COLORS.white}40`}
+              autoCapitalize="characters"
+              value={formData.access_code}
+              onChangeText={(t) => setFormData({ ...formData, access_code: t.toUpperCase() })}
+            />
+          </View>
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Máximo participantes (opcional)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Sin límite"
+              placeholderTextColor={`${COLORS.white}40`}
+              keyboardType="number-pad"
+              value={formData.max_participants}
+              onChangeText={(t) => setFormData({ ...formData, max_participants: t.replace(/[^0-9]/g, '') })}
+            />
+          </View>
+        </>
+      ) : null}
       <View style={styles.formGroup}>
         <Text style={styles.label}>Liga / Temporada (opcional)</Text>
         {f1Leagues.length === 0 ? (

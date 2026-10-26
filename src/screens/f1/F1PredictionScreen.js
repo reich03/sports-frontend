@@ -70,6 +70,7 @@ export default function F1PredictionScreen({ navigation, route }) {
   const [pickerFor, setPickerFor] = useState(null); // 'pole' | 'fastest' | 'dotd' | { positionIndex: n }
   const [retirementsModal, setRetirementsModal] = useState(false);
   const [statusModal, setStatusModal] = useState({ visible: false, type: 'success', title: '', message: '', onAccept: null });
+  const [gridUsesFallback, setGridUsesFallback] = useState(false);
 
   const showStatus = useCallback((type, title, message, onAccept) => {
     setStatusModal({ visible: true, type, title, message, onAccept: onAccept || null });
@@ -83,6 +84,35 @@ export default function F1PredictionScreen({ navigation, route }) {
   const poleLocked = event ? isPoleClosed(event) : false;
   const footerHeight = 72 + insets.bottom;
 
+  const buildEmptyPositions = (size) => Array.from({ length: size }, () => null);
+
+  const validateLocalPrediction = useCallback(() => {
+    const allowed = new Set(grid.map((d) => d.id));
+    const filled = positions.filter(Boolean);
+    if (filled.length === 0) {
+      return 'Asigna al menos un piloto en la parrilla antes de guardar.';
+    }
+    const seen = new Set();
+    for (let i = 0; i < filled.length; i += 1) {
+      const driverId = filled[i];
+      if (!allowed.has(driverId)) {
+        return 'Hay pilotos que no pertenecen a la parrilla oficial del evento.';
+      }
+      if (seen.has(driverId)) {
+        return 'No puedes repetir el mismo piloto en varias posiciones.';
+      }
+      seen.add(driverId);
+    }
+    if (filled.length > gridSize) {
+      return `Solo puedes usar ${gridSize} posiciones en este evento.`;
+    }
+    const extras = [pole, fastestLap, dotd].filter(Boolean);
+    if (extras.some((id) => !allowed.has(id))) {
+      return 'Pole, vuelta rápida o piloto del día deben ser de la parrilla del evento.';
+    }
+    return null;
+  }, [grid, positions, gridSize, pole, fastestLap, dotd]);
+
   const load = useCallback(async () => {
     try {
       const [eventRes, driversRes, myPredRes] = await Promise.all([
@@ -95,7 +125,9 @@ export default function F1PredictionScreen({ navigation, route }) {
 
       const availDrivers = driversRes.data?.drivers || [];
       setGrid(availDrivers);
+      setGridUsesFallback(!!driversRes.data?.fallback);
 
+      const size = ev?.grid_size || 20;
       const pred = myPredRes.data?.prediction;
       if (pred && Array.isArray(pred.positions) && pred.positions.length > 0) {
         setPositions(pred.positions);
@@ -104,16 +136,18 @@ export default function F1PredictionScreen({ navigation, route }) {
         setDotd(pred.driver_of_the_day_id || '');
         setRetirements(pred.retirements_count != null ? String(pred.retirements_count) : '');
       } else {
-        // Inicializar con la parrilla en el mismo orden
-        const size = ev?.grid_size || 20;
-        setPositions(availDrivers.slice(0, size).map((d) => d.id));
+        setPositions(buildEmptyPositions(size));
       }
     } catch (err) {
+      if (err.response?.status === 403 && err.response?.data?.error?.code === 'F1_EVENT_PRIVATE') {
+        navigation.replace('F1EventJoin', { eventId });
+        return;
+      }
       console.error('Error cargando predicción F1:', err);
     } finally {
       setLoading(false);
     }
-  }, [eventId]);
+  }, [eventId, navigation]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -170,6 +204,11 @@ export default function F1PredictionScreen({ navigation, route }) {
     if (!event) return;
     if (isRaceClosed(event)) {
       showStatus('warning', 'Predicciones cerradas', 'Las predicciones para este evento ya están cerradas.');
+      return;
+    }
+    const localError = validateLocalPrediction();
+    if (localError) {
+      showStatus('warning', 'Parrilla inválida', localError);
       return;
     }
     setSaving(true);
@@ -477,6 +516,15 @@ export default function F1PredictionScreen({ navigation, route }) {
           <Text style={[styles.tabText, tab === 'summary' && styles.tabTextActive]}>Resumen</Text>
         </TouchableOpacity>
       </View>
+
+      {gridUsesFallback && (
+        <View style={[styles.lockedBanner, { borderColor: C.warning, backgroundColor: `${C.warning}18` }]}>
+          <Ionicons name="alert-circle-outline" size={14} color={C.warning} />
+          <Text style={[styles.lockedText, { color: C.warning }]}>
+            Parrilla no configurada por el admin. Pilotos cargados desde el catálogo general.
+          </Text>
+        </View>
+      )}
 
       {raceLocked && (
         <View style={styles.lockedBanner}>

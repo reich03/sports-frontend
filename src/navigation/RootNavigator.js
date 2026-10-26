@@ -57,6 +57,7 @@ import F1TeamManagement from '../screens/admin/F1TeamManagement';
 import F1EventsListScreen from '../screens/f1/F1EventsListScreen';
 import F1PredictionScreen from '../screens/f1/F1PredictionScreen';
 import F1ResultsScreen from '../screens/f1/F1ResultsScreen';
+import F1EventJoinScreen from '../screens/f1/F1EventJoinScreen';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -314,6 +315,7 @@ const MainStack = () => {
 
       {/* F1 user screens */}
       <Stack.Screen name="F1EventsList" component={F1EventsListScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="F1EventJoin" component={F1EventJoinScreen} options={{ headerShown: false }} />
       <Stack.Screen name="F1Prediction" component={F1PredictionScreen} options={{ headerShown: false }} />
       <Stack.Screen name="F1Results" component={F1ResultsScreen} options={{ headerShown: false }} />
       <Stack.Screen 
